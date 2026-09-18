@@ -1,0 +1,6 @@
+pageturner.koplugin/config.lua
+.pageturner-token
+__pycache__/
+*.pyc
+*.jsonl
+.DS_Store
