@@ -49,6 +49,14 @@ Use [ui/time](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/tim
 - Reject covered/no-longer-active readers and concurrent pending turns; never auto-retry uncertain requests.
 - A private iptables chain avoids deleting another plugin's similar rules. Binding happens before firewall setup; failed startup rolls back. Only normal lifecycle cleanup is guaranteed—abrupt process termination can leave stale rules.
 
+## Menu placement and connection details
+
+- [ReaderMenu](https://github.com/koreader/koreader/blob/v2026.03/frontend/apps/reader/modules/readermenu.lua) loads a cached reader-menu order after collecting plugin items. [Plugin menu insertion](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/plugin/insert_menu.lua) uses this shared table for plugin placement. Page Turner inserts only its own ID at the front of `tools`, idempotently, and uses `sorting_hint = "tools"` as a fallback. Merely changing the hint would append it and could still put it on page two. Other items retain their relative order; no settings files are written. Explicit user order overrides still win.
+- Manual start now displays a connection popup. The enabled connection-details entry reads a fresh snapshot when tapped; normal resume does not open a popup.
+- [Kindle network manager methods](https://github.com/koreader/koreader/blob/v2026.03/frontend/device/kindle/device.lua) provide `getCurrentNetwork().ssid` through a read-only LIPC query and `getNetworkInterfaceName()` (`wlan0`). `isWifiOn()` is a sysfs query on Kindle. No scan or connection action is used.
+- `getifaddrs` / numeric `getnameinfo`, already declared by KOReader's `ffi/posix_h`, provide an **up-interface Wi-Fi IPv4 address**, not USB/loopback/IPv6 or the listener's wildcard bind address. Allocated lists are freed even if conversion fails. This follows the read-only enumeration pattern in [Device:retrieveNetworkInfo](https://github.com/koreader/koreader/blob/v2026.03/frontend/device/generic/device.lua), without that method's gateway ping or localized-text parsing.
+- Missing/unsupported information remains explicit rather than blocking listener startup or presenting a guessed URL. The popup never includes the bearer token.
+
 ## If it fails on the Kindle
 
 Diagnose the specific layer before changing transports:
@@ -68,7 +76,9 @@ Any fallback that needs wake locks, automatic Wi-Fi changes, or modifications to
 
 ## Validation so far
 
-- 18 Lua tests with KOReader/socket doubles: protocol/authentication, fragmented I/O, bounded clients, partial sends, lifecycle cancellation, navigation direction, firewall ownership/rollback, and configuration validation.
+- 21 Lua plugin tests with KOReader/socket doubles: protocol/authentication, fragmented I/O, bounded clients, partial sends, lifecycle cancellation, navigation direction, firewall ownership/rollback, configuration validation, menu placement, and connection-popup behavior.
+- 9 network tests with OS/KOReader doubles: interface/IPv4 filtering, resource cleanup, unavailable data, Wi-Fi-off state, refreshed snapshots, and SSID display sanitization.
+- Additional source smoke check using the actual v2026.03 `MenuSorter` and reader-menu order (other dependencies stubbed): Page Turner is the first Tools entry.
 - 6 Python client tests: authenticated bodyless requests, timing/logging, configuration generation, failure handling, and no automatic retries.
 - 3 real LuaSocket transport integration tests on the laptop: 20 alternating requests plus unauthorized rejection, fragmented/slow-client handling, and oversized-header/method rejection.
-- No physical Kindle tests yet. The laptop transport's 20 requests are **not** the roadmap's 20 visible-page-turn acceptance test.
+- Owner reports the initial MVP works on the Kindle. A laptop probe also received the expected unauthenticated HTTP 401 from the Kindle listener. The precise 20-visible-turn/regression gate and two-session trial have not been reported as completed. The new menu/network-details UI has not yet been verified on-device.

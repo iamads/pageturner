@@ -49,12 +49,14 @@
 
 ## Strategic context
 ### Evidence already available
-- At discovery start, the project directory was empty. A minimal plugin, laptop client, install instructions, and local tests are now implemented. No on-device test evidence exists yet.
+- At discovery start, the project directory was empty. A minimal plugin, laptop client, install instructions, and local tests are now implemented. Owner now reports “Mvp works”; detailed gate results remain unreported.
+- 2026-09-18: The Kindle listener responded to an unauthenticated laptop probe with the expected HTTP 401. This verifies reachability/authentication rejection, not a page turn.
+- Owner requests easier menu access and visible Wi-Fi name/IP/port after startup. Implemented as first entry in the default Tools menu and a fresh, read-only connection-details popup; on-device UI verification is pending. This is an in-scope usability refinement, not a strategy or phase-gate change.
 - Implementation: `pageturner.koplugin/`, `tools/pageturner.py`, and `README.md`. HTTP exposes only authenticated bodyless POST next/back, with diagnostic timing and no sleep/Wi-Fi/settings changes.
 - Source compatibility was checked against **v2026.03**, not only moving master. Findings and references: [KOReader research](docs/koreader-research.md).
-- Local validation: 18 Lua tests with KOReader/socket doubles, 6 Python client tests, and 3 real LuaSocket transport integration tests passed. None substitutes for visible page-turn, firewall, or power-behavior tests on the Kindle.
+- Local validation: 21 Lua plugin tests, 9 Lua network tests, 6 Python client tests, and 3 real LuaSocket transport integration tests passed. A smoke check using the actual v2026.03 menu sorter/order also confirmed first Tools placement. Mocks/source checks do not replace actual Kindle UI or power-behavior tests.
 - Owner reports KOReader 2026.03 already running on their Kindle and confirms same-Wi-Fi testing with the device awake.
-- The owner has specified the desired transport experiment and command pair, but feasibility on their device is not yet demonstrated.
+- Owner-reported MVP success supports initial HTTP/navigation feasibility. Exact command count, latency distribution, and regression/session results are still unknown.
 - Upstream source inspected on 2026-09-18 (moving `master`, not the owner's installed version): [HTTP inspector](https://github.com/koreader/koreader/blob/master/plugins/httpinspector.koplugin/main.lua) already runs an HTTP listener using `ui/message/simpletcpserver`, registers it with the UI manager, adds/removes Kindle firewall rules, and exposes event dispatch over HTTP. This is strong implementation precedent, not an on-device test.
 - [Auto-turn plugin](https://github.com/koreader/koreader/blob/master/plugins/autoturn.koplugin/main.lua) invokes `self.ui:handleEvent(Event:new("GotoViewRel", 1))` through its default distance. [Dispatcher](https://github.com/koreader/koreader/blob/master/frontend/dispatcher.lua) exposes this event as “Turn pages” with signed numeric distances. Proposed next/back mapping: +1/-1; verify behavior in the owner's reading mode and book format.
 - Proposed: Use HTTP inspector only as a short, trusted-network diagnostic if available, then reuse the relevant patterns in a narrow next/back plugin. Its arbitrary event/method inspection surface is broader than this product needs.
@@ -62,16 +64,16 @@
 ### Critical uncertainties
 | ID | Uncertainty / hypothesis | Why it matters | How it will be tested | Status |
 |---|---|---|---|---|
-| H1 | A custom plugin can be installed and run on the owner's Kindle | Prerequisite for all later work | Inspect device setup and load a minimal plugin | KOReader installed and file-copy access confirmed; custom plugin execution untested |
-| H2 | KOReader can accept laptop HTTP requests without blocking the UI | Determines initial transport | Inspect upstream networking and run an on-device spike | Upstream precedent found; target device unverified |
-| H3 | Next/back can safely invoke reader page navigation | Requests alone do not prove useful control | Inspect navigation events; verify visible page changes in both directions | GotoViewRel identified; target behavior unverified |
+| H1 | A custom plugin can be installed and run on the owner's Kindle | Prerequisite for all later work | Inspect device setup and load a minimal plugin | Owner reports MVP works; plugin menu/startup observed by owner |
+| H2 | KOReader can accept laptop HTTP requests without blocking the UI | Determines initial transport | Inspect upstream networking and run an on-device spike | HTTP reachability observed; responsiveness guardrails need detailed evidence |
+| H3 | Next/back can safely invoke reader page navigation | Requests alone do not prove useful control | Inspect navigation events; verify visible page changes in both directions | Owner reports MVP works; exact 20-turn/regression results unreported |
 | H4 | Wireless connectivity remains usable during real reading | Sleep/power behavior may undermine practical use | Reading-session and reconnect tests | Unknown |
 | H5 | Voice commands offer repeated value with acceptable recognition errors | Determines whether phone work is justified | Owner use-case interview, then phone prototype and reading trials | Unknown |
 
 ## Roadmap overview
 | Phase | Purpose | Exit outcome | Confidence | State |
 |---|---|---|---|---|
-| 1. Kindle remote-control feasibility | Prove installation, request handling, and actual page navigation | Owner demonstrates both directions from a laptop without breaking local reading | Medium for implementation approach; device unverified | Implemented locally; awaiting Kindle test |
+| 1. Kindle remote-control feasibility | Prove installation, request handling, and actual page navigation | Owner demonstrates both directions from a laptop without breaking local reading | Medium; owner reports MVP success | In-device use reported; gate evidence incomplete; usability refinement |
 | 2. Usable laptop-controlled reading | Establish reliability and operational limits | Repeated reading sessions meet agreed reliability, latency, and recovery guardrails | Low | Proposed next |
 | 3. Phone voice proof of value | Test hands-free reading rather than merely speech recognition | Owner repeatedly completes useful reading sessions with acceptable command errors | Low | Directional |
 | 4. Broader-user validation, if desired | Learn whether others can adopt and benefit | Target users independently set up and repeatedly use the tool | Low | Optional; possible later plugin distribution |
@@ -111,7 +113,7 @@ H1–H3 are prerequisites. H4 is an early operational risk.
 
 ### Exit gate
 - Functional acceptance: Installation, 20 alternating next/back commands producing exactly one correct turn each, and preserved existing KOReader behavior. Proposed supplemental checks: Restart/load, listener cleanup, and unauthorized-command rejection. Record timing as diagnostic evidence, not a performance blocker.
-- No on-device evidence yet; implementation authorization is not evidence that a phase gate has passed.
+- Partial evidence: Owner reports MVP works and listener reachability is observed. The exact 20-command result and normal-behavior checks remain unreported; no phase advancement is inferred.
 - Proposed decision owner: Project owner reviews evidence and explicitly authorizes moving to phase 2.
 
 ### Pass, mixed, and fail decisions
@@ -182,10 +184,11 @@ Proposed: Cloud services, polished phone application, broad recruitment, and exp
 - Confidence: Low.
 
 ## Implementation checkpoint
-- Minimal v1 is ready for owner installation, not declared device-validated.
+- Owner reports minimal v1 works on their Kindle; detailed acceptance/regression evidence remains incomplete.
+- Requested usability update: Page Turner first in default Tools (no More tools hop); startup and on-demand connection popup shows Wi-Fi name, Wi-Fi IPv4, port, and URL when available. Read-only queries; no token shown, networking/power/settings changes, or popup on automatic resume. New UI awaits owner testing.
 - Chosen implementation details (not separate product approvals): Manual listener per open book, default port 8088, plugin-local token config, foreground-reader guard, no automatic retries, private temporary firewall chain, normal suspend/standby cleanup and normal-resume restoration when previously enabled.
 - No sleep/settings writes, Wi-Fi activation, remote wake, arbitrary event endpoint, phone code, or distribution machinery.
-- Pending owner evidence: Copy/load plugin, confirm 20 visible bidirectional turns, check preserved local behavior and listener cleanup. Hardware model/firmware can be recorded during that test.
+- Pending owner evidence: Exact 20 visible bidirectional turns, preserved local behavior and listener cleanup; verify updated menu placement and displayed Wi-Fi/IP/port after copying the UI update. Hardware model/firmware can be recorded during that test.
 - Broader roadmap discovery remains paused at the user's request; no phase has advanced and the full roadmap has not been declared Active.
 
 ## Phase transition record
@@ -221,3 +224,4 @@ Proposed: Cloud services, polished phone application, broad recruitment, and exp
 | 2026-09-18 | Confirmed plugin file-copy access, <100 ms command-delivery target excluding refresh, and shared-token acceptance; proposed acknowledgement timing and token rejection checks | Owner's second interview answers | 1–2 | User for constraints; measurement/gate details proposed |
 | 2026-09-18 | Paused discovery and authorized minimal implementation; removed latency hard-gate proposal, accepted diagnostic timing and two 30-minute reliability sessions, reinforced no sleep/unrelated changes | User asks to build first version now | 1–2 | User; full roadmap remains unconfirmed |
 | 2026-09-18 | Implemented minimal HTTP plugin/client, documented v2026.03 source compatibility, and passed 27 local tests; left device gate open | Lua mocks, Python HTTP fixture, and real LuaSocket transport tests; no Kindle execution | 1 | Implementation evidence recorded by assistant; owner device validation pending |
+| 2026-09-18 | Recorded owner-reported MVP success and observed HTTP reachability; implemented requested earlier menu placement and read-only Wi-Fi/IP/port details; 39 local tests pass | Owner's usability feedback after using the MVP; upstream menu/network API research and tests. No strategy/gate change or phase transition | 1; helps next-phase setup | User for MVP report and requested UX; assistant for local implementation/test evidence |

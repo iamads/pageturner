@@ -1,6 +1,6 @@
 # Page Turner for KOReader
 
-Minimal Kindle plugin: send authenticated HTTP commands from your laptop to turn the open book **next** or **back**. Designed against KOReader **2026.03** source; **not yet tested on a physical Kindle**.
+Minimal Kindle plugin: send authenticated HTTP commands from your laptop to turn the open book **next** or **back**. Designed against KOReader **2026.03** source. The owner reports the initial MVP works on their Kindle; the latest menu/network-info improvements still need on-device verification.
 
 No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi management, touch controls, or page-rendering behavior. The server is manually enabled per open book.
 
@@ -24,8 +24,18 @@ No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi managem
 
    On typical Kindle installations this is `/mnt/us/koreader/plugins/` (the `koreader/plugins` directory on the USB drive). Use your actual KOReader installation location. No extra Kindle dependencies are needed beyond KOReader's bundled LuaSocket.
 
-3. Safely eject the Kindle, restart KOReader, and open a book. Find **Page Turner (HTTP)** under the main menu's tools/more-tools section and choose **Start Page Turner**. If it is missing, check KOReader's plugin manager and restart after enabling it.
-4. Close the menu so the book itself is visible. Put both devices on the same trusted Wi-Fi and find the Kindle's Wi-Fi IPv4 address in its network information or your router's client list. Enable Wi-Fi yourself if necessary; the plugin will not do it.
+3. Safely eject the Kindle, restart KOReader, and open a book. Tap the top of the screen → **Tools → Page Turner (HTTP) → Start Page Turner**. Page Turner is the first entry on the default Tools menu, not inside More tools. Explicit custom menu-order settings still take precedence. If it is missing, check KOReader's plugin manager and restart after enabling it.
+4. Starting the listener shows **Wi-Fi name, Kindle IPv4 address, port, and base URL**. You can reopen **Connection details (Wi-Fi / IP / port)** for fresh information if the network changes. Unsupported/missing details display “Unavailable” rather than a guessed address. Wi-Fi is queried read-only; it is never enabled or reconfigured by the plugin.
+5. Dismiss the information popup and close the menu so the book itself is visible before sending commands. Both devices must be on the same trusted Wi-Fi. Enable Wi-Fi yourself if necessary.
+
+## Update an installed copy
+
+Stop Page Turner and exit KOReader before copying updated files. For the menu/network-info update, copy these two files into the existing Kindle `koreader/plugins/pageturner.koplugin/` folder:
+
+- `pageturner.koplugin/main.lua`
+- `pageturner.koplugin/pageturner_network.lua` (new)
+
+Keep the existing `config.lua` and laptop `.pageturner-token`; **do not regenerate the token**. Safely eject, restart KOReader, and open a book. Confirm the new menu position, Wi-Fi/IP/port display, and that next/back still work after closing the popup and menus.
 
 ## Send commands
 
@@ -97,6 +107,7 @@ The <100 ms delivery target is an aspiration, not a v1 blocker. Client timing in
 
 ```sh
 luajit tests/test_plugin.lua
+luajit tests/test_network.lua
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 

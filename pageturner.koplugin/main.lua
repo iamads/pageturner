@@ -7,6 +7,7 @@ local time = require("ui/time")
 local HTTP = require("pageturner_http")
 local Server = require("pageturner_server")
 local Firewall = require("pageturner_firewall")
+local Network = require("pageturner_network")
 
 local PageTurner = WidgetContainer:extend{
     name = "pageturner",
@@ -133,10 +134,41 @@ function PageTurner:onRequest(request)
     return HTTP.response(202, "accepted " .. command .. " request=" .. id)
 end
 
+function PageTurner:connectionInfoText()
+    if not self.server or not self.config then return "Page Turner is not listening." end
+    local ok, network = pcall(Network.snapshot)
+    if not ok then network = {ssid = "Unavailable", ip = "Unavailable"} end
+    local lines = {
+        "Page Turner is listening",
+        "",
+        "Wi-Fi: " .. network.ssid,
+        "Kindle IP: " .. network.ip,
+        "Port: " .. self.config.port,
+    }
+    if network.address then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "http://" .. network.address .. ":" .. self.config.port
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "Close this message and the menu before sending commands."
+    return table.concat(lines, "\n")
+end
+
 function PageTurner:addToMainMenu(menu_items)
+    -- The standard sorting_hint only appends, which can land on page two.
+    -- KOReader caches this order specifically for plugin insertion. Move only
+    -- our own entry to the front; no settings files or other entries are changed.
+    -- Explicit user menu-order overrides still take precedence in MenuSorter.
+    local tools = require("ui/elements/reader_menu_order").tools
+    if type(tools) == "table" then
+        for i = #tools, 1, -1 do
+            if tools[i] == "pageturner" then table.remove(tools, i) end
+        end
+        table.insert(tools, 1, "pageturner")
+    end
     menu_items.pageturner = {
         text = "Page Turner (HTTP)",
-        sorting_hint = "more_tools",
+        sorting_hint = "tools",
         sub_item_table = {
             {
                 text_func = function()
@@ -144,22 +176,26 @@ function PageTurner:addToMainMenu(menu_items)
                 end,
                 keep_menu_open = true,
                 callback = function(menu)
+                    local message
                     if self.enabled then
                         self.enabled = false
                         self:stop()
                     else
                         local ok, err = self:start()
                         self.enabled = ok == true
-                        if not ok then self:notify(err) end
+                        message = ok and self:connectionInfoText() or err
                     end
                     if menu then menu:updateItems() end
+                    if message then self:notify(message) end
                 end,
             },
             {
                 text_func = function()
-                    return self.server and ("Listening on port " .. self.config.port) or "Not listening"
+                    return self.server and "Connection details (Wi-Fi / IP / port)" or "Not listening"
                 end,
-                enabled = false,
+                enabled_func = function() return self.server ~= nil end,
+                keep_menu_open = true,
+                callback = function() self:notify(self:connectionInfoText()) end,
             },
         },
     }

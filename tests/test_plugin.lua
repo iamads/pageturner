@@ -196,6 +196,8 @@ package.loaded.pageturner_firewall = {new = function(_, port)
         return firewall_failure and 1 or 0
     end)
 end}
+local menu_order = {tools = {"read_timer", "calibre", "more_tools"}, more_tools = {"httpinspector"}}
+package.loaded["ui/elements/reader_menu_order"] = menu_order
 local Plugin = dofile("pageturner.koplugin/main.lua")
 local function plugin()
     local reader = {document = {}, events = {}, menu = {registerToMainMenu = function() end}}
@@ -264,5 +266,57 @@ test("configuration rejects missing token and invalid port without exposing secr
     _G.dofile = function() return {port = 8088, token = token} end
     assert(Plugin.readConfig(p))
     _G.dofile = original
+end)
+test("Page Turner is first in Tools without duplicates or reordering other entries", function()
+    local p = plugin()
+    local items = {}
+    p:addToMainMenu(items); p:addToMainMenu(items)
+    eq(table.concat(menu_order.tools, ","), "pageturner,read_timer,calibre,more_tools")
+    eq(table.concat(menu_order.more_tools, ","), "httpinspector")
+    eq(items.pageturner.sorting_hint, "tools")
+    eq(items.pageturner.sub_item_table[2].enabled_func(), false)
+end)
+test("manual start shows fresh Wi-Fi/IP/port; details refresh without exposing token", function()
+    local Network = require("pageturner_network")
+    local original = Network.snapshot
+    local snapshots = 0
+    Network.snapshot = function()
+        snapshots = snapshots + 1
+        return {ssid = "Bedroom", ip = "192.168.0." .. snapshots, address = "192.168.0." .. snapshots}
+    end
+    local p = plugin()
+    local messages, updates = {}, 0
+    p.notify = function(_, text) messages[#messages + 1] = text end
+    local items = {}; p:addToMainMenu(items)
+    local submenu = items.pageturner.sub_item_table
+    local menu = {updateItems = function() updates = updates + 1 end}
+    submenu[1].callback(menu)
+    eq(p.enabled, true); eq(updates, 1); eq(#messages, 1)
+    assert(messages[1]:find("Wi-Fi: Bedroom\nKindle IP: 192.168.0.1\nPort: 8088", 1, true))
+    assert(messages[1]:find("http://192.168.0.1:8088", 1, true))
+    assert(not messages[1]:find(token, 1, true))
+    eq(submenu[2].enabled_func(), true)
+    submenu[2].callback()
+    assert(messages[2]:find("Kindle IP: 192.168.0.2", 1, true))
+    p:onSuspend(); p:onResume(); eq(#messages, 2) -- no popup on automatic resume
+    submenu[1].callback(menu)
+    eq(p.enabled, false); eq(#messages, 2); eq(submenu[2].enabled_func(), false)
+    Network.snapshot = original
+end)
+test("network information failure cannot prevent startup or invent a usable URL", function()
+    local Network = require("pageturner_network")
+    local original = Network.snapshot
+    Network.snapshot = function() error("unsupported platform API") end
+    local p = plugin()
+    local messages = {}
+    p.notify = function(_, text) messages[#messages + 1] = text end
+    local items = {}; p:addToMainMenu(items)
+    items.pageturner.sub_item_table[1].callback()
+    assert(p.server); eq(p.enabled, true)
+    assert(messages[1]:find("Wi-Fi: Unavailable", 1, true))
+    assert(messages[1]:find("Port: 8088", 1, true))
+    assert(not messages[1]:find("http://", 1, true))
+    p:stop(); eq(p:connectionInfoText(), "Page Turner is not listening.")
+    Network.snapshot = original
 end)
 print("Passed " .. count .. " tests (mocked KOReader and sockets; on-device verification still required).")
