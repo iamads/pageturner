@@ -3,14 +3,14 @@
 > Updated: 2026-09-19
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Chrome identified failed CORS preflight; scoped plugin CORS implemented and locally tested, Kindle/desktop/iPhone retest pending.
+> State: Scoped CORS works end-to-end in desktop Chrome; iPhone Safari/Firefox Focus HTTP fetch fails in ~4 ms. Kindle logs/exact WebKit failure pending.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Resume here
 
 Do not interpret this document or the local harness as evidence that the browser architecture already works. Continue on `feat/mobile-pwa`, not `main`; do not merge or alter the working Kindle installation without the owner's direction.
 
-A minimal framework-free harness now exists in `mobile-pwa/`, and the owner approved GitHub Pages as its static HTTPS host. The repository remote is `iamads/pageturner`, both branches are published, and a fresh workflow deployment after removal of the old account-level custom domain made `https://iamads.github.io/pageturner/` available with HTTP 200 for the page and shell assets. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on its `master` Pages source branch; remove it there before a future legacy build if detachment should persist. The next workstream is the **small actual-iPhone connectivity + foreground-wake-lock experiment**.
+A minimal framework-free harness now exists in `mobile-pwa/`, and the owner approved GitHub Pages as its static HTTPS host. The repository remote is `iamads/pageturner`, both branches are published, and a fresh workflow deployment after removal of the old account-level custom domain made `https://iamads.github.io/pageturner/` available with HTTP 200 for the page and shell assets. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on its `master` Pages source branch; remove it there before a future legacy build if detachment should persist. The current workstream is the **actual-iPhone transport diagnosis**, followed by the foreground-wake-lock experiment only after phone connectivity works.
 
 ## Confirmed decisions
 
@@ -29,11 +29,12 @@ The owner reports that the initial MVP works on their Kindle, running **KOReader
 
 Do not overstate acceptance evidence:
 
-- Desktop Chrome 151 on macOS loaded the Pages shell securely. The owner later captured Chrome's exact error: the preflight response lacked `Access-Control-Allow-Origin`. This proves the browser received a preflight response and identifies CORS as the current obstacle; it does not prove the later POST/iPhone path. Chrome documents permission-gated local-HTTP mixed-content exemptions, so the earlier inference that TLS is necessarily required is withdrawn. No iPhone test has run.
+- After the scoped CORS update was installed, the owner reports the Pages PWA works from desktop Chrome, including actual Kindle control. CORS and authenticated direct HTTP are therefore validated in that desktop environment.
+- The owner reports failure from iPhone Safari and Firefox Focus. Focus diagnostics show `https://iamads.github.io` is secure, Wake Lock/service worker APIs exist, browser display mode is active, and the HTTP Kindle fetch fails in 4 ms with `TypeError: Load failed`. All iOS browsers use WebKit; the two app failures do not validate two browser engines. No matching Kindle transport logs, Safari Web Inspector error, installed/Home Screen run, or active wake-lock test has been supplied.
 - The exact initial 20 alternating visible-turn test and normal-reading regressions have not been reported in detail.
 - The two 30-minute sessions have not been reported as completed.
 - Latest menu/network-info changes still lack explicit on-device confirmation in the conversation.
-- No Safari/Home Screen PWA, TLS, browser connectivity, or phone wake-lock tests have run.
+- Safari/Focus browser-mode connectivity has failed; no Home Screen connectivity, TLS, or active phone wake-lock test has passed.
 - Phase 1 remains formally open. Mobile feasibility discovery is approved, but no prior gate is declared passed and no exception has been granted.
 
 ### Code map
@@ -146,4 +147,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
 - Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
 
-**Immediate next action after resuming:** Follow README **Test browser connectivity and scoped CORS**: copy updated `main.lua`, `pageturner_http.lua`, and `pageturner_server.lua` without changing config/token; restart KOReader and try one command. OPTIONS should return 204 and cause no turn; the following POST must still authenticate and should return 202/401/409. Capture transport logs and browser errors, then repeat in the installed iPhone app. The PWA needs no CORS code change. No device deployment has been performed by the assistant.
+**Immediate next action after resuming:** With Page Turner listening, make exactly one iPhone tap and inspect matching `PageTurner: transport` lines. Also directly open `http://<current-kindle-ip>:8088/next` on the phone: expected 401, no turn. Confirm same non-guest Wi-Fi and iOS browser local-network permission, and capture Safari Web Inspector Console/Network output if possible. Verify OS version under Settings rather than inferring it from the conflicting UA. If direct navigation returns 401 but the Pages tap creates no transport line, treat WebKit HTTPS→HTTP blocking as evidenced and evaluate trusted Kindle HTTPS next. Do not repeat commands after uncertain POSTs or claim wake-lock success merely because the API is present.
