@@ -38,9 +38,13 @@ One-time repository setup:
 3. Run **Deploy mobile PWA to GitHub Pages** from the Actions tab if the push did not trigger it.
 4. Use the HTTPS URL shown by the workflow's `github-pages` deployment. For a project site it is normally `https://<owner>.github.io/<repository>/`.
 
-The repository remote is `iamads/pageturner`, and Pages is configured to deploy through GitHub Actions. The workflow successfully deployed commit `93c0155`, but the account-level Pages domain currently makes the app unreachable: `iamads.github.io/pageturner/` redirects to `abhijeet.de/pageturner/`, whose existing server redirects to `/de` instead of serving this artifact. Do not alter the existing `iamads.github.io` custom-domain setup just for this spike without separate approval.
+The repository remote is `iamads/pageturner`, and Pages deploys through GitHub Actions at:
 
-A reachable trusted-HTTPS URL therefore remains unresolved. Options include routing `/pageturner/` on the existing domain to the Pages artifact, assigning a dedicated Pages-compatible subdomain with DNS, or approving another static HTTPS host. Do not add secrets to hosting configuration, repository variables, these files, or the workflow.
+**https://iamads.github.io/pageturner/**
+
+After the old account-level custom domain was removed, the project workflow had to be redeployed before this URL stopped returning 404. The live page and all shell assets now return HTTP 200 over HTTPS. The older `iamads/iamads.github.io` repository still has a tracked `CNAME` file containing `abhijeet.de` on its `master` Pages source branch; remove that file in the older repository before its next legacy Pages build if the domain should remain detached.
+
+Do not add secrets to hosting configuration, repository variables, these files, or the workflow.
 
 ## Actual-iPhone procedure
 

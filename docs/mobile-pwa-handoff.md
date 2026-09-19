@@ -3,14 +3,14 @@
 > Updated: 2026-09-19
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Harness deployed successfully by GitHub Actions, but inherited custom-domain routing makes its URL unreachable; iPhone test pending.
+> State: Harness live at `https://iamads.github.io/pageturner/`; actual-iPhone connectivity/wake-lock test pending.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Resume here
 
 Do not interpret this document or the local harness as evidence that the browser architecture already works. Continue on `feat/mobile-pwa`, not `main`; do not merge or alter the working Kindle installation without the owner's direction.
 
-A minimal framework-free harness now exists in `mobile-pwa/`, and the owner approved GitHub Pages as its static HTTPS host. The repository remote is `iamads/pageturner`, `main` and `feat/mobile-pwa` are published, and the Pages workflow deployed commit `93c0155` successfully. However, the inherited account Pages domain redirects `iamads.github.io/pageturner/` to `abhijeet.de/pageturner/`, where the existing server redirects to `/de` instead of serving the artifact. Do not disrupt the owner's existing root site. The next decision is a dedicated subdomain/existing-server route or another static HTTPS host; then run the **small actual-iPhone connectivity + foreground-wake-lock experiment**.
+A minimal framework-free harness now exists in `mobile-pwa/`, and the owner approved GitHub Pages as its static HTTPS host. The repository remote is `iamads/pageturner`, both branches are published, and a fresh workflow deployment after removal of the old account-level custom domain made `https://iamads.github.io/pageturner/` available with HTTP 200 for the page and shell assets. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on its `master` Pages source branch; remove it there before a future legacy build if detachment should persist. The next workstream is the **small actual-iPhone connectivity + foreground-wake-lock experiment**.
 
 ## Confirmed decisions
 
@@ -142,4 +142,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
 - Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
 
-**Immediate next action after resuming:** Resolve the static URL without removing or disrupting the existing `abhijeet.de` Pages/custom-site configuration: either provide a Pages-compatible subdomain/DNS or existing-server route, or explicitly approve another static HTTPS host. Then run the documented installed-app experiment and capture mixed-content, local-network, certificate, and preflight outcomes separately. Do not add Kindle TLS/CORS, choose a laptop bridge, or claim prior gates passed without that evidence and architecture review.
+**Immediate next action after resuming:** Open `https://iamads.github.io/pageturner/` on the actual iPhone and run the documented installed-app experiment. Capture mixed-content, local-network, certificate, and preflight outcomes separately. Separately remove the stale `CNAME` file from the older site's `master` branch if `abhijeet.de` should stay detached. Do not add Kindle TLS/CORS, choose a laptop bridge, or claim prior gates passed without device evidence and architecture review.
