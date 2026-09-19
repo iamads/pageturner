@@ -3,7 +3,7 @@
 > Updated: 2026-09-19
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Harness live at `https://iamads.github.io/pageturner/`; actual-iPhone connectivity/wake-lock test pending.
+> State: Harness live; desktop Chrome confirmed Pages HTTPS cannot fetch the current Kindle HTTP API. Direct HTTPS/CORS design and actual-iPhone test pending.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Resume here
@@ -29,6 +29,7 @@ The owner reports that the initial MVP works on their Kindle, running **KOReader
 
 Do not overstate acceptance evidence:
 
+- Desktop Chrome 151 on macOS loaded the Pages shell securely but its HTTP Kindle fetch failed in 2 ms. A separate non-mutating HTTP probe reached the same listener and received 401, so this is browser-path evidence rather than a bad-token or basic-reachability result. Exact browser policy console text was not captured; no iPhone test has run.
 - The exact initial 20 alternating visible-turn test and normal-reading regressions have not been reported in detail.
 - The two 30-minute sessions have not been reported as completed.
 - Latest menu/network-info changes still lack explicit on-device confirmation in the conversation.
@@ -142,4 +143,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
 - Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
 
-**Immediate next action after resuming:** Open `https://iamads.github.io/pageturner/` on the actual iPhone and run the documented installed-app experiment. Capture mixed-content, local-network, certificate, and preflight outcomes separately. Separately remove the stale `CNAME` file from the older site's `master` branch if `abhijeet.de` should stay detached. Do not add Kindle TLS/CORS, choose a laptop bridge, or claim prior gates passed without device evidence and architecture review.
+**Immediate next action after resuming:** Select and obtain owner acceptance for the direct HTTPS setup—likely Kindle-side TLS with a phone-trusted certificate plus narrowly scoped Pages-origin CORS/preflight—before implementation. The plain-HTTP attempt is already blocked in desktop Chrome and need not be repeated as if it could pass. Then test the combined path and wake lock on the actual iPhone. Separately remove the stale `CNAME` file from the older site's `master` branch if `abhijeet.de` should stay detached. Do not choose a laptop/cloud command relay or claim prior gates passed.
