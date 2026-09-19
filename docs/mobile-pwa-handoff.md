@@ -48,7 +48,8 @@ Do not overstate acceptance evidence:
 | `tools/pageturner.py` | Laptop diagnostic client, existing token configuration, RTT JSON logs, no automatic retry |
 | `tests/` | Lua plugin/network doubles, Python client tests, optional real LuaSocket transport tests |
 | `README.md` | Install/update instructions and protocol/lifecycle limits |
-| `mobile-pwa/` | Diagnostic installable shell: in-memory endpoint/token setup, one-shot controls, wake-lock lifecycle, redacted diagnostics; no hosting or device proof |
+| `mobile-pwa/` | Diagnostic installable shell: in-memory endpoint/token setup, one-shot controls, wake-lock lifecycle, redacted diagnostics; no device proof |
+| `docs/mobile-pwa-hosting-strategies.md` | Living comparison of GitHub-hosted cross-origin and Kindle-hosted same-origin PWA strategies; neither selected |
 | `docs/koreader-research.md` | KOReader v2026.03 API evidence and prior test coverage |
 
 ### API/lifecycle contract to preserve
@@ -72,6 +73,8 @@ A mobile button UI is easy compared with the browser security/deployment constra
 5. A self-signed certificate or clicking past a browser warning is not automatically a valid solution. Verify actual browser trust, hostname/IP certificate matching, secure-context status, and installed-PWA behavior together.
 
 ### Candidate approaches and decisions still open
+
+The two currently considered hosting strategies, including HTTP/HTTPS distinctions and operational trade-offs, are documented in [`mobile-pwa-hosting-strategies.md`](mobile-pwa-hosting-strategies.md). Keep that document open for additional strategies; no architecture is selected yet.
 
 - **Investigate first:** Trusted HTTPS on the Kindle, with same-origin PWA hosting or a separate HTTPS frontend calling it directly. Assess available TLS libraries/packaging and device resource cost before promising feasibility.
 - A different direct phone-to-Kindle browser design is acceptable only if demonstrated on the target phone and consistent with authentication, PWA, and foreground wake-lock requirements.

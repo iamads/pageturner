@@ -191,8 +191,8 @@ H6 and H7 are the first risks to resolve; H8 governs pairing/setup. H4 and relia
 - Confirmed target: Owner-reported iOS 26.6, KOReader 2026.03, same Wi-Fi, phone+Kindle-only operation, existing bearer token, foreground-only phone wake lock.
 - Current API is HTTP-only, bodyless POST next/back, with no TLS, static hosting, health endpoint, CORS, or OPTIONS support. A static PWA alone cannot be assumed to connect successfully.
 - Confirmed for the spike: GitHub Pages hosts the static PWA shell at `https://iamads.github.io/pageturner/`; it is not a command relay and contains no token. Live page and shell-asset HTTP checks pass. The stale `CNAME` in the older user-site repository should be removed separately if the old domain must stay detached.
-- Unknown: Post-install offline requirements, Kindle-side certificate provisioning/trust acceptance, production frontend architecture, token pairing/storage, and precise iOS local-network behavior. Investigate before committing implementation architecture.
-- Work isolated on `feat/mobile-pwa`; handoff: [Mobile PWA handoff](docs/mobile-pwa-handoff.md). The current change is documentation only.
+- Unknown: Post-install offline requirements, Kindle-side certificate provisioning/trust acceptance, production frontend architecture, token pairing/storage, and precise iOS local-network behavior. Investigate before committing implementation architecture. Current hosting option comparison: [Mobile PWA hosting strategies](docs/mobile-pwa-hosting-strategies.md).
+- Work isolated on `feat/mobile-pwa`; handoff: [Mobile PWA handoff](docs/mobile-pwa-handoff.md).
 
 ### Non-goals
 Voice/microphone access, locked-screen/background execution, native app packaging, running laptop/proxy dependency, public Kindle exposure, expanded commands, broad recruitment, and unrelated reader/power changes. Static asset hosting and certificate setup are unresolved—not silently approved cloud infrastructure.
