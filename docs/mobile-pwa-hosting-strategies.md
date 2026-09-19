@@ -133,18 +133,18 @@ Wake state: Wake lock inactive
 Last event: back fetch failed after 4 ms: TypeError: Load failed
 ```
 
-All browsers on iOS use WebKit, so Safari and Firefox Focus failing is consistent with one shared platform restriction rather than two independent implementations. Desktop Chrome's local-network HTTP exemption cannot be assumed to exist in WebKit. The 4 ms failure is consistent with blocking before a useful HTTP exchange, but the evidence is not yet conclusive because matching Kindle transport logs and Safari Web Inspector output were not supplied.
+All browsers on iOS use WebKit, so Safari and Firefox Focus failing is consistent with one shared platform restriction rather than two independent implementations. Desktop Chrome's local-network HTTP exemption cannot be assumed to exist in WebKit. The owner then correlated browser and Kindle evidence: direct iPhone navigation to the HTTP `/next` URL returned and logged 401 at 21:54, while the PWA tap at 21:56 created no connection/request log before the listener stopped at 21:57. The direct GET cannot turn a page. This proves local-network HTTP reachability and isolates the PWA failure to WebKit blocking before request delivery.
 
-Next diagnostics, in order:
+Conclusion for this tested path:
 
-1. Correlate one phone tap with `PageTurner: transport` lines. No new connection/request strongly supports pre-network browser/OS blocking; OPTIONS or POST lines identify a later layer.
-2. On the phone, directly navigate to `http://192.168.0.102:8088/next` without a token. A displayed 401 cannot turn a page and proves direct phone-to-listener HTTP navigation/local-network access. Failure points to Wi-Fi isolation or iOS/app local-network permission before mixed-content analysis.
-3. Confirm both devices use the same non-guest Wi-Fi and review iOS **Settings → Privacy & Security → Local Network** for the tested browser where exposed.
-4. Capture Safari's exact Console/Network error using Web Inspector from a Mac if available.
-5. Verify the OS version in **Settings → General → About**. The supplied UA says `iPhone OS 18_7`, while the earlier owner report was iOS 26.6 and the Focus UA also says `Version/26.4`; UA fields are not sufficient to resolve that discrepancy.
-6. Only after transport is understood, install the PWA and test wake-lock acquisition/idle/background return. `Wake Lock API: true` with `Wake state: inactive` is capability detection, not a passed wake test.
+- CORS, authentication, listener reachability, and Wi-Fi are not the remaining blocker.
+- Adding more HTTP CORS headers or trying another branded iOS browser will not change the shared WebKit engine boundary.
+- `no-cors`, forms, images, iframes, service workers, or WebSockets do not preserve the authenticated/readable command contract while bypassing this restriction.
+- A secure-context PWA now needs a trusted HTTPS Kindle endpoint. The existing Pages PWA plus cross-origin HTTPS is the smallest next implementation because CORS and frontend controls already work.
+- Hosting the PWA itself on Kindle HTTPS remains an alternative that removes CORS but adds static serving and update complexity.
+- iOS Shortcut/native control or relaxing the wake-lock/PWA requirement remain explicit scope alternatives if HTTPS setup is unacceptable.
 
-If direct HTTP navigation works but no transport request appears for the HTTPS Pages fetch, trusted HTTPS on the Kindle becomes the leading standards-compliant PWA path. If HTTPS setup is undesirable, iOS Shortcut/native control or relaxing the wake-lock/PWA requirement are scope alternatives, not equivalent fixes.
+Before implementing TLS, choose certificate addressing: a private CA trusted on the iPhone plus a stable Kindle IP/hostname, or a publicly trusted certificate for an owned hostname (for example via DNS-01) resolving locally to the Kindle. Verify the exact OS version separately. Only after HTTPS transport works should the installed-PWA wake-lock acquisition/idle/background-return trial run; `Wake Lock API: true` with `Wake state: inactive` is not a passed wake test.
 
 ### Changes required to make it viable
 
@@ -261,13 +261,13 @@ For the intended product, the Kindle-hosted strategy therefore means **same-orig
 | Browser-policy complexity | Higher | Lower after certificate trust |
 | Certificate/IP-change burden | Certificate burden only if TLS is needed; IP changes still require endpoint updates | Present |
 | Runtime path | Phone → Kindle; Pages only serves assets | Phone → Kindle only |
-| Current status | Works in desktop Chrome; iPhone WebKit fetch fails in ~4 ms, exact layer pending logs | Not implemented or device-tested |
+| Current status | Desktop Chrome works; correlated logs prove iPhone WebKit blocks HTTP before plugin delivery | Not implemented or device-tested |
 
 ## Preliminary assessment
 
 If trusted Kindle HTTPS is feasible, same-origin Kindle hosting removes two entire browser-policy layers: CORS/preflight and public-origin-to-private-network requests. It therefore appears architecturally simpler at runtime and better aligned with phone + Kindle-only/offline operation.
 
-Its cost is greater Kindle plugin responsibility and less convenient frontend deployment. The simpler HTTP + CORS path now works in desktop Chrome but fails in iPhone WebKit. If logs confirm WebKit blocks before reaching the plugin while direct HTTP navigation works, TLS server capability, certificate setup, stable addressing, and target-iPhone secure-context behavior should be the next PWA experiment.
+Its cost is greater Kindle plugin responsibility and less convenient frontend deployment. Correlated logs now confirm that the simpler HTTP + CORS path is blocked before reaching the plugin in iPhone WebKit while direct HTTP navigation works. TLS server capability, certificate setup, stable addressing, and target-iPhone secure-context behavior are therefore the next PWA experiment if the PWA/wake-lock requirements remain.
 
 ## Questions to resolve before selecting either strategy
 

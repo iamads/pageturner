@@ -3,7 +3,7 @@
 > Updated: 2026-09-19
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Scoped CORS works end-to-end in desktop Chrome; iPhone Safari/Firefox Focus HTTP fetch fails in ~4 ms. Kindle logs/exact WebKit failure pending.
+> State: Correlated logs prove iPhone WebKit blocks Pages→HTTP Kindle before delivery; choose Kindle HTTPS certificate/addressing strategy next.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Resume here
@@ -30,7 +30,7 @@ The owner reports that the initial MVP works on their Kindle, running **KOReader
 Do not overstate acceptance evidence:
 
 - After the scoped CORS update was installed, the owner reports the Pages PWA works from desktop Chrome, including actual Kindle control. CORS and authenticated direct HTTP are therefore validated in that desktop environment.
-- The owner reports failure from iPhone Safari and Firefox Focus. Focus diagnostics show `https://iamads.github.io` is secure, Wake Lock/service worker APIs exist, browser display mode is active, and the HTTP Kindle fetch fails in 4 ms with `TypeError: Load failed`. All iOS browsers use WebKit; the two app failures do not validate two browser engines. No matching Kindle transport logs, Safari Web Inspector error, installed/Home Screen run, or active wake-lock test has been supplied.
+- The owner reports failure from iPhone Safari and Firefox Focus. Focus diagnostics show `https://iamads.github.io` is secure, Wake Lock/service worker APIs exist, browser display mode is active, and the HTTP Kindle fetch fails in 4 ms with `TypeError: Load failed`. Direct HTTP navigation returned/logged 401 at 21:54, but the PWA tap at 21:56 produced no transport log before listener stop at 21:57. This proves LAN/listener reachability and WebKit blocking before plugin delivery. All iOS browsers use WebKit; testing another branded browser is not an independent engine test. No installed/Home Screen run or active wake-lock test has passed.
 - The exact initial 20 alternating visible-turn test and normal-reading regressions have not been reported in detail.
 - The two 30-minute sessions have not been reported as completed.
 - Latest menu/network-info changes still lack explicit on-device confirmation in the conversation.
@@ -147,4 +147,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
 - Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
 
-**Immediate next action after resuming:** With Page Turner listening, make exactly one iPhone tap and inspect matching `PageTurner: transport` lines. Also directly open `http://<current-kindle-ip>:8088/next` on the phone: expected 401, no turn. Confirm same non-guest Wi-Fi and iOS browser local-network permission, and capture Safari Web Inspector Console/Network output if possible. Verify OS version under Settings rather than inferring it from the conflicting UA. If direct navigation returns 401 but the Pages tap creates no transport line, treat WebKit HTTPS→HTTP blocking as evidenced and evaluate trusted Kindle HTTPS next. Do not repeat commands after uncertain POSTs or claim wake-lock success merely because the API is present.
+**Immediate next action after resuming:** Present and choose Kindle HTTPS certificate/addressing setup. Recommended smallest continuation: keep the working Pages PWA and scoped CORS, add an optional HTTPS Kindle endpoint, and test it before considering Kindle-hosted static assets. Candidate certificate paths are (a) private CA installed/trusted on the iPhone with stable IP/hostname, or (b) publicly trusted certificate for an owned hostname using DNS-01 and local/private resolution. Validate KOReader/LuaSec server support before promising either. Verify exact iOS version in Settings. Do not spend more time on branded iOS browsers, add CORS bypasses, or run wake-lock session gates until HTTPS command transport succeeds.
