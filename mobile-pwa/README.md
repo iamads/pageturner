@@ -38,11 +38,13 @@ One-time repository setup:
 3. Run **Deploy mobile PWA to GitHub Pages** from the Actions tab if the push did not trigger it.
 4. Use the HTTPS URL shown by the workflow's `github-pages` deployment. For a project site it is normally `https://<owner>.github.io/<repository>/`.
 
-The repository remote is `iamads/pageturner`, and Pages is configured to deploy through GitHub Actions. Do not add secrets to GitHub Pages, repository variables, these files, or the workflow.
+The repository remote is `iamads/pageturner`, and Pages is configured to deploy through GitHub Actions. The workflow successfully deployed commit `93c0155`, but the account-level Pages domain currently makes the app unreachable: `iamads.github.io/pageturner/` redirects to `abhijeet.de/pageturner/`, whose existing server redirects to `/de` instead of serving this artifact. Do not alter the existing `iamads.github.io` custom-domain setup just for this spike without separate approval.
+
+A reachable trusted-HTTPS URL therefore remains unresolved. Options include routing `/pageturner/` on the existing domain to the Pages artifact, assigning a dedicated Pages-compatible subdomain with DNS, or approving another static HTTPS host. Do not add secrets to hosting configuration, repository variables, these files, or the workflow.
 
 ## Actual-iPhone procedure
 
-After the GitHub Pages deployment succeeds:
+After a reachable HTTPS deployment succeeds:
 
 1. In Safari on the actual phone, open the Pages URL and capture **Spike diagnostics**.
 3. Add the app to the Home Screen, launch it there, and confirm `Secure context: yes` and `Display mode: standalone`.
