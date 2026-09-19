@@ -70,7 +70,8 @@
 - Proposed: Use HTTP inspector only as a short, trusted-network diagnostic if available, then reuse the relevant patterns in a narrow next/back plugin. Its arbitrary event/method inspection surface is broader than this product needs.
 
 - PWA source research: [Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) requires a secure context and an active/visible document; the OS can deny/release it. [WebKit Safari 18.4 notes](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/) document Home Screen web-app wake-lock support. This is not execution evidence for the owner's reported iOS 26.6.
-- Browser transport risk: Current Kindle API is plain HTTP and has no CORS/OPTIONS handling. [Mixed-content rules](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content) normally block HTTPS-page fetches to HTTP endpoints; CORS alone is not a remedy. Exact local-network/security behavior must be verified on the target iPhone. No PWA/connectivity/wake-lock experiment has been run yet.
+- Browser transport risk: Current Kindle API is plain HTTP and has no CORS/OPTIONS handling. [Mixed-content rules](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content) normally block HTTPS-page fetches to HTTP endpoints; CORS alone is not a remedy. Exact local-network/security behavior must be verified on the target iPhone.
+- 2026-09-19: A framework-free diagnostic PWA shell now exists in `mobile-pwa/`. It records secure-context/install/wake-lock state, accepts IP/port/token in memory, sends commands once with no replay, and never service-worker-queues command requests. Local syntax/static-serving checks pass. The owner approved GitHub Pages as the spike's static HTTPS host; the public repository remote and Pages Actions are configured, and the workflow publishes only this directory. No deployment or target-iPhone test has completed yet, so H6/H7 remain unknown.
 
 ### Critical uncertainties
 | ID | Uncertainty / hypothesis | Why it matters | How it will be tested | Status |
@@ -188,7 +189,8 @@ H6 and H7 are the first risks to resolve; H8 governs pairing/setup. H4 and relia
 ### Dependencies and constraints
 - Confirmed target: Owner-reported iOS 26.6, KOReader 2026.03, same Wi-Fi, phone+Kindle-only operation, existing bearer token, foreground-only phone wake lock.
 - Current API is HTTP-only, bodyless POST next/back, with no TLS, static hosting, health endpoint, CORS, or OPTIONS support. A static PWA alone cannot be assumed to connect successfully.
-- Unknown: Hosting/bootstrap, offline requirements, certificate provisioning/trust acceptance, frontend stack, token pairing/storage, and precise iOS local-network behavior. Investigate before committing implementation architecture.
+- Confirmed for the spike: GitHub Pages may host the static PWA shell; it is not a command relay and contains no token. The public repository remote and Pages Actions source are configured; feature deployment evidence is pending.
+- Unknown: Post-install offline requirements, Kindle-side certificate provisioning/trust acceptance, production frontend architecture, token pairing/storage, and precise iOS local-network behavior. Investigate before committing implementation architecture.
 - Work isolated on `feat/mobile-pwa`; handoff: [Mobile PWA handoff](docs/mobile-pwa-handoff.md). The current change is documentation only.
 
 ### Non-goals
@@ -217,7 +219,8 @@ Voice/microphone access, locked-screen/background execution, native app packagin
 - Chosen implementation details (not separate product approvals): Manual listener per open book, default port 8088, plugin-local token config, foreground-reader guard, no automatic retries, private temporary firewall chain, normal suspend/standby cleanup and normal-resume restoration when previously enabled.
 - No sleep/settings writes, Wi-Fi activation, remote wake, arbitrary event endpoint, phone code, or distribution machinery.
 - Pending owner evidence: Exact 20 visible bidirectional turns, preserved local behavior and listener cleanup; verify updated menu placement and displayed Wi-Fi/IP/port after copying the UI update. Hardware model/firmware can be recorded during that test.
-- 2026-09-19: Owner approved the mobile PWA phase revision and feasibility-first sequence, with foreground-only wake lock on reported iOS 26.6 and no running laptop. Branch `feat/mobile-pwa` created from `main` at `2f3140f`; roadmap and handoff only so far.
+- 2026-09-19: Owner approved the mobile PWA phase revision and feasibility-first sequence, with foreground-only wake lock on reported iOS 26.6 and no running laptop. Branch `feat/mobile-pwa` was created from `main` at `2f3140f`.
+- 2026-09-19: Added the minimal `mobile-pwa/` feasibility harness before choosing a production architecture. It includes install metadata/offline shell caching, direct endpoint configuration, one-shot Next/Back requests, foreground wake-lock lifecycle controls, and token-redacted diagnostics. GitHub Pages is approved for static spike hosting; the repository remote and Pages Actions source are configured, with feature deployment evidence pending. No Kindle API/TLS/CORS behavior changed; actual-iPhone combined connectivity/wake evidence remains the next checkpoint.
 - No phase has been declared passed. The broader roadmap still contains directional/unconfirmed decisions, so its overall status remains Discovery.
 
 ## Phase transition record
@@ -244,7 +247,8 @@ Voice/microphone access, locked-screen/background execution, native app packagin
 - [x] Approved next-phase replacement: Mobile PWA control + reliability; connectivity/wake-lock spike first; work on a separate branch.
 - [ ] Verify exact iPhone OS/build, installed-PWA behavior, and local-network/security restrictions during the spike.
 - [ ] Choose a direct secure-context connection design; agree acceptable certificate/hostname/trust setup before implementation commitment.
-- [ ] Decide static hosting/bootstrap, offline shell behavior, and token entry/storage/pairing UX.
+- [x] Static spike hosting/bootstrap: owner approved GitHub Pages; public remote and Pages Actions configured, feature deployment evidence pending.
+- [ ] Decide production/offline shell behavior and token entry/storage/pairing UX after the spike.
 - [ ] Refine privacy/offline recognition and background listening requirements only when the later voice phase is considered.
 - [x] Preserve existing KOReader behavior outside remote next/back controls.
 - [ ] Confirm bounded regression checks, proposed phases, outcome measures, gates, and non-goals.
@@ -262,3 +266,5 @@ Voice/microphone access, locked-screen/background execution, native app packagin
 | 2026-09-18 | Recorded owner-reported MVP success and observed HTTP reachability; implemented requested earlier menu placement and read-only Wi-Fi/IP/port details; 39 local tests pass | Owner's usability feedback after using the MVP; upstream menu/network API research and tests. No strategy/gate change or phase transition | 1; helps next-phase setup | User for MVP report and requested UX; assistant for local implementation/test evidence |
 | 2026-09-19 | Replaced proposed laptop-only reliability phase with mobile PWA control + reliability; retained two 30-minute sessions and Kindle guardrails; added direct-connectivity/wake-lock feasibility checkpoint, kept voice later and prior evidence gaps open | User confirmed iOS 26.6, foreground auto-lock prevention only, phone+Kindle-only operation, and the proposed phase revision. Current HTTP/CORS/secure-context constraints require research first | 2 and voice entry; no phase transition | User explicitly approved scope/sequencing; detailed spike criteria and architecture remain proposed/unverified |
 | 2026-09-19 | Created `feat/mobile-pwa` from `main` at `2f3140f` and prepared `docs/mobile-pwa-handoff.md`; no PWA code or device changes | User requested separate branch, roadmap update, and handoff before continuing | 2 | User |
+| 2026-09-19 | Added a minimal diagnostic PWA harness without selecting hosting or changing the Kindle API; no device evidence or gate transition claimed | Authorized feasibility-first work; local shell/syntax checks and all existing non-optional tests pass, but actual HTTPS/iPhone behavior remains untested | 2 | User authorized mobile-PWA work; implementation evidence recorded by assistant |
+| 2026-09-19 | Selected GitHub Pages for static spike hosting and added a Pages deployment workflow scoped to `mobile-pwa/`; production architecture remains open | Owner confirmed “github pages work”; static HTTPS bootstrap enables the actual-iPhone test without becoming a command relay. No remote/deployment/device evidence yet | 2 | User |

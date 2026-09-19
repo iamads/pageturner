@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Page Turner spike</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">iPhone feasibility spike</p>
+      <h1>Page Turner</h1>
+      <p class="warning">Experimental harness. A timeout is uncertain—check the Kindle and never tap again automatically.</p>
+    </header>
+
+    <section class="card" aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection</h2>
+      <form id="connection-form">
+        <div class="endpoint-row">
+          <label>Protocol
+            <select id="protocol" name="protocol">
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+            </select>
+          </label>
+          <label class="host">Kindle IP
+            <input id="host" name="host" inputmode="decimal" autocomplete="off" placeholder="192.168.1.42" required>
+          </label>
+          <label>Port
+            <input id="port" name="port" inputmode="numeric" pattern="[0-9]*" value="8088" required>
+          </label>
+        </div>
+        <label>Bearer token
+          <input id="token" name="token" type="password" autocomplete="off" minlength="32" maxlength="128" required>
+        </label>
+        <p class="hint">The token stays in this page's memory. It is not stored, logged, or included in a URL.</p>
+        <button class="secondary" type="submit">Use this connection</button>
+      </form>
+      <p id="connection-state" class="state" role="status">Not configured</p>
+    </section>
+
+    <section class="card" aria-labelledby="session-title">
+      <h2 id="session-title">Foreground session</h2>
+      <div class="session-row">
+        <button id="start-session" class="secondary" type="button">Start wake lock</button>
+        <button id="end-session" class="secondary" type="button" disabled>End session</button>
+      </div>
+      <p id="wake-state" class="state" role="status">Wake lock inactive</p>
+    </section>
+
+    <section class="controls" aria-label="Page controls">
+      <button id="back" class="turn" type="button" disabled><span aria-hidden="true">←</span> Back</button>
+      <button id="next" class="turn primary" type="button" disabled>Next <span aria-hidden="true">→</span></button>
+    </section>
+    <p id="command-state" class="command-state" role="status" aria-live="polite">Configure the Kindle before sending a command.</p>
+
+    <details class="card diagnostics">
+      <summary>Spike diagnostics</summary>
+      <dl>
+        <div><dt>Frontend origin</dt><dd id="diag-origin"></dd></div>
+        <div><dt>Secure context</dt><dd id="diag-secure"></dd></div>
+        <div><dt>Display mode</dt><dd id="diag-display"></dd></div>
+        <div><dt>Visibility</dt><dd id="diag-visibility"></dd></div>
+        <div><dt>Wake Lock API</dt><dd id="diag-wake-api"></dd></div>
+        <div><dt>Service worker</dt><dd id="diag-worker"></dd></div>
+        <div><dt>Endpoint</dt><dd id="diag-endpoint">Not configured</dd></div>
+        <div><dt>Last event</dt><dd id="diag-event">App loaded</dd></div>
+      </dl>
+      <button id="copy-diagnostics" class="secondary" type="button">Copy diagnostics</button>
+      <p class="hint">Diagnostics never include the token. Browser errors are reduced to an error type and message.</p>
+    </details>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "Page Turner feasibility spike",
+  "short_name": "Page Turner",
+  "description": "Direct iPhone-to-Kindle control and foreground wake-lock experiment.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#080c14",
+  "theme_color": "#111827",
+  "orientation": "portrait"
+}

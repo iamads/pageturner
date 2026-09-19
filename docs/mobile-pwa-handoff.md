@@ -3,14 +3,14 @@
 > Updated: 2026-09-19
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Scope/sequencing approved; roadmap and handoff only. No PWA implementation or iPhone feasibility test yet.
+> State: Minimal diagnostic PWA harness and GitHub Pages workflow prepared; repository remote and Pages Actions configured, deployment/iPhone evidence pending.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Resume here
 
-The owner requested the roadmap update and this handoff **before continuing**. Do not interpret this document as evidence that the browser architecture already works. Continue on `feat/mobile-pwa`, not `main`; do not merge or alter the working Kindle installation without the owner's direction.
+Do not interpret this document or the local harness as evidence that the browser architecture already works. Continue on `feat/mobile-pwa`, not `main`; do not merge or alter the working Kindle installation without the owner's direction.
 
-The next authorized workstream is a **small actual-iPhone connectivity + foreground wake-lock experiment**, before a polished frontend or framework choice. The delivery for this turn stops at documentation.
+A minimal framework-free harness now exists in `mobile-pwa/`, and the owner approved GitHub Pages as its static HTTPS host. The repository remote is `iamads/pageturner`, `main` has been published, and Pages uses GitHub Actions. The next workstream is to deploy this feature branch, then run the **small actual-iPhone connectivity + foreground-wake-lock experiment** before a polished frontend or Kindle TLS/CORS architecture choice.
 
 ## Confirmed decisions
 
@@ -47,6 +47,7 @@ Do not overstate acceptance evidence:
 | `tools/pageturner.py` | Laptop diagnostic client, existing token configuration, RTT JSON logs, no automatic retry |
 | `tests/` | Lua plugin/network doubles, Python client tests, optional real LuaSocket transport tests |
 | `README.md` | Install/update instructions and protocol/lifecycle limits |
+| `mobile-pwa/` | Diagnostic installable shell: in-memory endpoint/token setup, one-shot controls, wake-lock lifecycle, redacted diagnostics; no hosting or device proof |
 | `docs/koreader-research.md` | KOReader v2026.03 API evidence and prior test coverage |
 
 ### API/lifecycle contract to preserve
@@ -74,12 +75,13 @@ A mobile button UI is easy compared with the browser security/deployment constra
 - **Investigate first:** Trusted HTTPS on the Kindle, with same-origin PWA hosting or a separate HTTPS frontend calling it directly. Assess available TLS libraries/packaging and device resource cost before promising feasibility.
 - A different direct phone-to-Kindle browser design is acceptable only if demonstrated on the target phone and consistent with authentication, PWA, and foreground wake-lock requirements.
 - **Not selected:** HTTPS implementation, frontend stack, certificate issuance/trust provisioning, hostname/IP strategy, certificate renewal, DHCP-change handling, asset hosting, and service-worker cache/update policy.
-- **Requires clarification before commitment:** Whether an external static HTTPS host for initial loading/install is acceptable; whether use after installation must work with no internet; how much one-time certificate/profile/DNS setup the owner accepts. Do not confuse a static asset host with a command relay.
+- **Confirmed for the spike:** GitHub Pages may provide the external static HTTPS origin for initial loading/install. It serves only public shell assets and is not a command relay. The workflow publishes `mobile-pwa/` only and contains no token.
+- **Still requires clarification before production commitment:** Whether use after installation must work with no internet and how much one-time Kindle certificate/profile/DNS setup the owner accepts.
 - Token entry/pairing and persistence remain open. A browser cannot automatically read the laptop's `.pageturner-token`. Preserve authentication without embedding a shared secret in bundled frontend code.
 - If certificate/IP constraints prevent the promised IP+port UX, explain the trade-off and obtain a decision instead of silently replacing it with hostname-only setup.
 - A laptop bridge, cloud command relay, native app, or HTTP-only page without standard wake lock is **not an approved fallback**. If the direct PWA path fails, stop and bring the blocker back to the owner.
 
-## Proposed spike procedure (not implemented)
+## Spike procedure (harness implemented; actual-device steps pending)
 
 1. **Inspect target environment.** Record exact iPhone model/OS/build, Safari and Home Screen modes, Kindle model/firmware, KOReader version, normal phone Auto-Lock timeout, and current network. Do not change the timeout or Kindle sleep settings to make a test appear successful.
 2. **Establish a minimal browser harness.** Log frontend origin, endpoint, `window.isSecureContext`, wake-lock availability/state, visibility changes, request status, and redacted browser errors. No production UI or framework investment yet.
@@ -140,4 +142,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
 - Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
 
-**Immediate next action after resuming:** Read the roadmap's phase 2, inspect current browser/TLS feasibility against the confirmed phone-only constraints, and prepare the smallest actual-iPhone connectivity + wake-lock experiment. Do not start a polished frontend, silently choose a laptop bridge, or claim prior gates passed.
+**Immediate next action after resuming:** Confirm the `feat/mobile-pwa` Pages workflow deployment, then use its HTTPS URL for the documented installed-app experiment. Capture mixed-content, local-network, certificate, and preflight outcomes separately. Do not add Kindle TLS/CORS, choose a laptop bridge, or claim prior gates passed without that evidence and architecture review.

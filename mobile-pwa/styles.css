@@ -1,0 +1,40 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #080c14;
+  color: #f8fafc;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: linear-gradient(180deg, #111827, #080c14 35%); }
+main { width: min(100%, 42rem); margin: 0 auto; padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+header { margin-bottom: 1.25rem; }
+h1 { margin: .15rem 0 .5rem; font-size: clamp(2rem, 9vw, 3.25rem); }
+h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+.eyebrow { margin: 0; color: #93c5fd; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; font-size: .75rem; }
+.warning { color: #fde68a; line-height: 1.4; }
+.card { padding: 1rem; margin: 1rem 0; border: 1px solid #334155; border-radius: 1rem; background: rgba(15, 23, 42, .92); }
+label { display: grid; gap: .35rem; color: #cbd5e1; font-size: .85rem; font-weight: 650; }
+input, select, button { min-height: 3rem; border-radius: .7rem; font: inherit; }
+input, select { width: 100%; border: 1px solid #475569; background: #020617; color: #f8fafc; padding: .7rem; font-size: 1rem; }
+.endpoint-row { display: grid; grid-template-columns: 6rem 1fr 5.5rem; gap: .6rem; margin-bottom: .8rem; }
+button { border: 0; padding: .75rem 1rem; font-weight: 750; touch-action: manipulation; }
+button:disabled { opacity: .4; }
+.secondary { color: #f8fafc; background: #334155; border: 1px solid #64748b; }
+form > .secondary { width: 100%; margin-top: .75rem; }
+.hint, .state { color: #94a3b8; font-size: .83rem; line-height: 1.4; }
+.state { min-height: 1.2rem; margin-bottom: 0; }
+.session-row, .controls { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.controls { margin-top: 1.25rem; }
+.turn { min-height: 8.5rem; background: #e2e8f0; color: #0f172a; font-size: 1.35rem; }
+.turn.primary { background: #60a5fa; color: #07111f; }
+.command-state { min-height: 3.2rem; padding: .25rem; color: #dbeafe; line-height: 1.45; }
+summary { cursor: pointer; font-weight: 750; }
+dl { margin: 1rem 0; }
+dl div { display: grid; grid-template-columns: 8rem 1fr; gap: .5rem; padding: .45rem 0; border-bottom: 1px solid #1e293b; }
+dt { color: #94a3b8; }
+dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .endpoint-row { grid-template-columns: 1fr 1fr; }
+  .endpoint-row .host { grid-column: 1 / -1; grid-row: 1; }
+}
