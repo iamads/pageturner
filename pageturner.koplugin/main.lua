@@ -54,6 +54,9 @@ function PageTurner:start()
         port = config.port,
         now = function() return time.to_number(time.now()) end,
         on_request = function(request) return self:onRequest(request) end,
+        on_diagnostic = function(id, event, detail)
+            logger.info("PageTurner: transport", "connection=" .. id, event, detail)
+        end,
     }
     local ok
     ok, err = server:start()
@@ -100,10 +103,17 @@ end
 
 function PageTurner:onRequest(request)
     if not self.server or not self.config then return HTTP.response(503, "Listener stopped") end
-    local direction, status, message = HTTP.command(request, self.config.token)
-    if not direction then return HTTP.response(status, message) end
-    if not self:readerReady() then return HTTP.response(409, "Open a book and close menus/dialogs first") end
-    if self.pending then return HTTP.response(409, "A page turn is already pending") end
+    local preflight = HTTP.preflight(request)
+    if preflight then return preflight end
+    local direction, status, message, cors = HTTP.command(request, self.config.token)
+    local response_options = {cors = cors}
+    if not direction then return HTTP.response(status, message, response_options) end
+    if not self:readerReady() then
+        return HTTP.response(409, "Open a book and close menus/dialogs first", response_options)
+    end
+    if self.pending then
+        return HTTP.response(409, "A page turn is already pending", response_options)
+    end
 
     self.sequence = self.sequence + 1
     local id = self.sequence
@@ -131,7 +141,7 @@ function PageTurner:onRequest(request)
     self.pending = pending
     UIManager:nextTick(pending)
     logger.info("PageTurner: accepted", id, command)
-    return HTTP.response(202, "accepted " .. command .. " request=" .. id)
+    return HTTP.response(202, "accepted " .. command .. " request=" .. id, response_options)
 end
 
 function PageTurner:connectionInfoText()

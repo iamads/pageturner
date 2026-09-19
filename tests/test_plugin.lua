@@ -16,6 +16,20 @@ local function request(path, auth, method, headers)
         .. "Authorization: Bearer " .. (auth or token) .. "\r\n"
         .. (headers or "Content-Length: 0\r\n") .. "\r\n"
 end
+local function browserRequest(path, auth, origin, headers)
+    return "POST " .. (path or "/next") .. " HTTP/1.1\r\n"
+        .. "Origin: " .. (origin or "https://iamads.github.io") .. "\r\n"
+        .. "Authorization: Bearer " .. (auth or token) .. "\r\n"
+        .. (headers or "Content-Length: 0\r\n") .. "\r\n"
+end
+local function preflight(path, origin, method, headers, private_network)
+    return "OPTIONS " .. (path or "/next") .. " HTTP/1.1\r\n"
+        .. "Origin: " .. (origin or "https://iamads.github.io") .. "\r\n"
+        .. "Access-Control-Request-Method: " .. (method or "POST") .. "\r\n"
+        .. "Access-Control-Request-Headers: " .. (headers or "authorization") .. "\r\n"
+        .. (private_network and "Access-Control-Request-Private-Network: " .. private_network .. "\r\n" or "")
+        .. "\r\n"
+end
 local HTTP = require("pageturner_http")
 test("only next/back map to signed reader navigation", function()
     eq(HTTP.command(request(), token), 1)
@@ -45,6 +59,82 @@ test("response framing has exact body length and connection close", function()
     assert(response:find("Content-Length: 9\r\n", 1, true))
     assert(response:find("Connection: close\r\n", 1, true))
     eq(response:match("\r\n\r\n(.*)$"), "accepted\n")
+end)
+test("approved preflight grants only fixed page-turn CORS permissions", function()
+    for _, path in ipairs({"/next", "/back"}) do
+        local response = HTTP.preflight(preflight(path))
+        assert(response:find("HTTP/1.1 204 No Content", 1, true))
+        assert(response:find("Access-Control-Allow-Origin: https://iamads.github.io\r\n", 1, true))
+        assert(response:find("Access-Control-Allow-Methods: POST\r\n", 1, true))
+        assert(response:find("Access-Control-Allow-Headers: Authorization\r\n", 1, true))
+        assert(response:find("Vary: Origin\r\n", 1, true))
+        assert(not response:find("Access-Control-Allow-Private-Network", 1, true))
+        eq(response:match("Content%-Length: (%d+)"), "0")
+        eq(response:match("\r\n\r\n(.*)$"), "")
+    end
+    local private = HTTP.preflight(preflight("/next", nil, nil, nil, "true"))
+    assert(private:find("Access-Control-Allow-Private-Network: true\r\n", 1, true))
+end)
+test("preflight rejects every broader origin, route, method, header and body", function()
+    local rejected = {
+        preflight("/next", "https://evil.example"),
+        preflight("/other"),
+        preflight("/next", nil, "GET"),
+        preflight("/next", nil, nil, "content-type"),
+        preflight("/next", nil, nil, "authorization, content-type"),
+        preflight("/next", nil, nil, "authorization, authorization"),
+        preflight("/next", nil, nil, nil, "false"),
+        (preflight("/next"):gsub("\r\n\r\n$", "\r\nContent-Length: 1\r\n\r\nx")),
+    }
+    for _, data in ipairs(rejected) do
+        local response = HTTP.preflight(data)
+        assert(response and not response:find("204 No Content", 1, true))
+        assert(not response:find("Access-Control-Allow-Methods", 1, true))
+    end
+end)
+test("actual browser commands retain auth and expose only approved-origin responses", function()
+    local direction, status, message, cors = HTTP.command(browserRequest(), token)
+    eq(direction, 1); eq(status, nil); eq(message, nil); eq(cors, true)
+    direction, status, message, cors = HTTP.command(browserRequest("/back", "wrong"), token)
+    eq(direction, nil); eq(status, 401); eq(cors, true)
+    direction, status, message, cors = HTTP.command(browserRequest("/next", token, "https://evil.example"), token)
+    eq(direction, nil); eq(status, 403); eq(cors, false)
+    local allowed = HTTP.response(401, "no", {cors = true})
+    assert(allowed:find("Access-Control-Allow-Origin: https://iamads.github.io", 1, true))
+    assert(not allowed:find("Access-Control-Allow-Methods", 1, true))
+    assert(not HTTP.response(401, "no"):find("Access-Control-Allow-Origin", 1, true))
+end)
+
+test("diagnostics classify browser preflight without raw request values", function()
+    local data = "OPTIONS /next HTTP/1.1\r\nOrigin: https://iamads.github.io\r\n"
+        .. "Access-Control-Request-Method: POST\r\n"
+        .. "Access-Control-Request-Headers: Authorization\r\n"
+        .. "Access-Control-Request-Private-Network: true\r\n\r\n"
+    eq(HTTP.requestSummary(data), "method=OPTIONS route=/next origin=pages auth=absent"
+        .. " requested_method=POST requested_headers=authorization private_network=true")
+    -- The command parser still requires auth; PageTurner handles valid OPTIONS
+    -- through HTTP.preflight before command parsing.
+    eq(select(2, HTTP.command(data, token)), 401)
+end)
+test("diagnostics never echo tokens in URLs, headers, methods or malformed input", function()
+    for _, data in ipairs({
+        request("/next?token=" .. token),
+        request("/" .. token, token, "POST", "Origin: " .. token .. "\r\n"
+            .. "Access-Control-Request-Method: " .. token .. "\r\n"
+            .. "Access-Control-Request-Headers: " .. token .. "\r\n"
+            .. "Access-Control-Request-Private-Network: " .. token .. "\r\n"),
+        token .. " /next HTTP/1.1\r\n\r\n",
+        "garbage " .. token .. "\r\n\r\n",
+        request() .. token,
+    }) do
+        local summary = HTTP.requestSummary(data)
+        assert(not summary:find(token, 1, true))
+        assert(not summary:find("[\r\n]"))
+        assert(#summary < 220)
+    end
+    local duplicate = request(nil, nil, nil,
+        "Origin: https://iamads.github.io\r\norigin: " .. token .. "\r\n")
+    assert(HTTP.requestSummary(duplicate):find("origin=other", 1, true))
 end)
 
 local clock = 0
@@ -130,6 +220,65 @@ test("handler failure becomes a safe response", function()
     assert(server:start())
     local client = peer({request()}); incoming = {client}; server:waitEvent()
     assert(client.output:find("500", 1, true)); assert(not client.output:find(token, 1, true))
+    server:stop()
+end)
+
+local function diagnosticServer(handler)
+    local entries = {}
+    local server = Server:new{port = 8088, on_request = handler or function(data)
+        local direction, status, message = HTTP.command(data, token)
+        return HTTP.response(direction and 202 or status, direction and "accepted" or message)
+    end, on_diagnostic = function(id, event, detail)
+        entries[#entries + 1] = id .. " " .. event .. " " .. detail
+    end}
+    assert(server:start())
+    return server, entries
+end
+test("transport logs each request and status once despite partial I/O", function()
+    local server, entries = diagnosticServer()
+    local data = request()
+    local client = peer({data:sub(1, 20), data:sub(21)}, 7)
+    incoming = {client}
+    for _ = 1, 100 do eq(server:waitEvent(), nil) end
+    eq(#entries, 4)
+    eq(entries[1], "1 connected ")
+    eq(entries[2], "1 request " .. HTTP.requestSummary(data))
+    eq(entries[3], "1 response_status 202")
+    eq(entries[4], "1 closed response_sent")
+    assert(not table.concat(entries):find(token, 1, true))
+    server:stop()
+end)
+test("transport distinguishes timeout, header limit, read error and stop", function()
+    local server, entries = diagnosticServer()
+    incoming = {peer({"partial"})}; server:waitEvent()
+    clock = clock + 3; server:waitEvent()
+    eq(entries[2], "1 closed timeout")
+    incoming = {peer({string.rep("x", 5000)})}; server:waitEvent()
+    eq(entries[4], "2 response_status 431")
+    eq(entries[5], "2 closed response_sent")
+    local disconnected = peer()
+    disconnected.receive = function() return nil, "closed", "" end
+    incoming = {disconnected}; server:waitEvent()
+    eq(entries[7], "3 closed read_closed_or_error")
+    incoming = {peer()}; server:waitEvent(); server:stop()
+    eq(entries[9], "4 closed listener_stopped")
+end)
+test("transport handler and send failures log safe statuses, not errors", function()
+    local server, entries = diagnosticServer(function() error(token) end)
+    local client = peer({request()})
+    client.send = function() return nil, token, 0 end
+    incoming = {client}; server:waitEvent()
+    eq(entries[3], "1 response_status 500")
+    eq(entries[4], "1 closed write_error")
+    assert(not table.concat(entries):find(token, 1, true))
+    server:stop()
+end)
+test("broken diagnostic callback cannot break requests or cleanup", function()
+    local server = diagnosticServer()
+    server.on_diagnostic = function() error("logging unavailable") end
+    local client = peer({request()})
+    incoming = {client}; server:waitEvent()
+    assert(client.output:find("202 Accepted", 1, true)); eq(client.closed, true)
     server:stop()
 end)
 
@@ -219,6 +368,40 @@ test("plugin starts disabled, acknowledges before dispatch and sends exactly one
     assert(p:onRequest(request("/back")):find("202 Accepted", 1, true))
     manager:tick(); eq(reader.events[2].direction, -1)
     p:stop(); eq(next(manager.queues), nil)
+end)
+test("approved browser preflight returns CORS permission without a page turn", function()
+    local p, reader = plugin(); assert(p:start())
+    local before = #logs
+    local client = peer({preflight()})
+    incoming = {client}; p.server:waitEvent(); manager:tick()
+    eq(#reader.events, 0)
+    assert(client.output:find("204 No Content", 1, true))
+    assert(client.output:find("Access-Control-Allow-Origin: https://iamads.github.io", 1, true))
+    eq(logs[before + 1][1], "PageTurner: transport")
+    eq(logs[before + 2][3], "request")
+    assert(logs[before + 2][4]:find("method=OPTIONS", 1, true))
+    eq(logs[before + 3][3], "response_status")
+    eq(logs[before + 3][4], 204)
+    p:stop()
+end)
+test("browser POST responses include CORS while auth and reader guards remain active", function()
+    local p, reader = plugin(); assert(p:start())
+    local unauthorized = p:onRequest(browserRequest("/next", "wrong"))
+    assert(unauthorized:find("401 Unauthorized", 1, true))
+    assert(unauthorized:find("Access-Control-Allow-Origin: https://iamads.github.io", 1, true))
+    local forbidden = p:onRequest(browserRequest("/next", token, "https://evil.example"))
+    assert(forbidden:find("403 Forbidden", 1, true))
+    assert(not forbidden:find("Access-Control-Allow-Origin", 1, true))
+    manager.top = {}
+    local covered = p:onRequest(browserRequest())
+    assert(covered:find("409 Conflict", 1, true))
+    assert(covered:find("Access-Control-Allow-Origin: https://iamads.github.io", 1, true))
+    manager.top = reader
+    local accepted = p:onRequest(browserRequest())
+    assert(accepted:find("202 Accepted", 1, true))
+    assert(accepted:find("Access-Control-Allow-Origin: https://iamads.github.io", 1, true))
+    manager:tick(); eq(#reader.events, 1)
+    p:stop()
 end)
 test("unauthorized requests and covered/absent books never turn pages", function()
     local p, reader = plugin(); assert(p:start())

@@ -63,8 +63,9 @@ Use `/back` for the opposite direction. The shell example above is for bash/zsh.
 ### HTTP contract
 
 - `POST /next` / `POST /back`, with `Authorization: Bearer <token>` and an empty body.
+- Browser access is allowed only from the exact origin `https://iamads.github.io`. A valid bodyless `OPTIONS` preflight for POST plus Authorization on `/next` or `/back` receives `204`; it never requires the token or turns a page. Actual POSTs remain authenticated.
 - `202`: authenticated command accepted for dispatch on KOReader's next UI tick. **Not confirmation of a visible page change.** The body includes a per-book request counter for matching Kindle logs.
-- `401`: missing/incorrect token; no turn.
+- `401`: missing/incorrect token on an actual command; no turn.
 - `409`: book not in the foreground, a menu/dialog is open, or a turn is already pending; no turn.
 - `400` / `404` / `405`: invalid request, unsupported path, or unsupported method; no turn.
 - `431`: request headers exceed 4 KiB. At most four clients are serviced at once; incomplete requests expire after two seconds.
@@ -102,6 +103,87 @@ The <100 ms delivery target is an aspiration, not a v1 blocker. Client timing in
 - **409:** close menus/dialogs and wait for the previous command to finish.
 - **Port already in use:** change only this plugin's `config.lua` port and pass the same port to the client; stop/start the plugin afterward.
 - **Accepted but no turn:** inspect the screen, book boundaries, reading mode, and `PageTurner` logs. A document switch or dialog appearing before dispatch cancels the queued command intentionally.
+
+## Test browser connectivity and scoped CORS
+
+This update adds token-safe `PageTurner: transport` lines and narrowly scoped
+CORS for the GitHub Pages PWA. It accepts browser preflight only for the exact
+origin `https://iamads.github.io`, routes `/next` and `/back`, method POST, and
+header Authorization. Actual page-turn POSTs still require the bearer token and
+all existing reader guards. The PWA itself requires no functional change.
+
+1. Stop Page Turner and exit KOReader. Copy these three updated files into the
+   existing `koreader/plugins/pageturner.koplugin/` folder:
+   - `pageturner.koplugin/main.lua`
+   - `pageturner.koplugin/pageturner_http.lua`
+   - `pageturner.koplugin/pageturner_server.lua`
+2. Keep the existing `config.lua` and token unchanged. Restart KOReader, open a
+   book, start Page Turner, then close the popup and menus.
+3. In Chrome, open DevTools **Console** and **Network** (all requests, including
+   OPTIONS). Open the Pages PWA, enter the current Kindle IP/port/token, and tap
+   Next **once**. Observe the Kindle before any further command.
+4. Inspect the corresponding `PageTurner:` lines in `koreader/crash.log` using
+   existing shell/file access. Do not attach the entire log or an unredacted HAR;
+   browser request headers contain the bearer token.
+
+A successful browser interaction should first log an unauthenticated preflight,
+then a separately authenticated POST (logger timestamp/format may differ):
+
+```text
+PageTurner: transport connection=1 connected
+PageTurner: transport connection=1 request method=OPTIONS route=/next origin=pages auth=absent requested_method=POST requested_headers=authorization private_network=absent
+PageTurner: transport connection=1 response_status 204
+PageTurner: transport connection=1 closed response_sent
+PageTurner: transport connection=2 connected
+PageTurner: transport connection=2 request method=POST route=/next origin=pages auth=present requested_method=absent requested_headers=absent private_network=absent
+PageTurner: transport connection=2 response_status 202
+PageTurner: transport connection=2 closed response_sent
+```
+
+Interpretation:
+
+- **OPTIONS + 204:** The approved preflight passed. Missing auth on OPTIONS is
+  normal; preflight only grants permission to attempt the authenticated POST.
+- **OPTIONS + 400/403/404/405:** Origin, route, requested method/header, body, or
+  private-network request was outside the narrow allowlist. No turn occurred.
+- **POST + 401:** The command reached the plugin but authentication failed.
+- **POST + 202:** Accepted for deferred dispatch; check existing `accepted`,
+  `dispatched`, and `cancelled` lines and the visible Kindle page. A browser can
+  still report a CORS error after the server accepted a command. Do not retry.
+- **409:** Reader covered/not available or another turn pending.
+- **Connected, then timeout/read error:** A TCP connection arrived but no complete
+  valid exchange finished. Browser speculative connections may also do this.
+- **No transport lines:** Not conclusive alone. First confirm the updated listener
+  and logging using the harmless OPTIONS control below. Then inspect browser
+  mixed-content, local-network permission, OS permission, and network errors.
+
+Optional non-mutating control from the laptop (no token and no page turn).
+Replace the example address with the Kindle's current IP:
+
+```sh
+curl --max-time 3 -i -X OPTIONS \
+  -H 'Origin: https://iamads.github.io' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization' \
+  http://192.168.0.102:8088/next
+```
+
+The expected response is **204** with the fixed `Access-Control-Allow-Origin`,
+`-Methods`, and `-Headers` values. This control validates reachability and the
+preflight response, but not the browser's local-network permission, authenticated
+POST, visible page movement, or iPhone support.
+
+Diagnostics use connection IDs (reset on listener restart), fixed method/route
+labels, `origin=pages/other/absent`, auth **presence only**, classified preflight
+fields, HTTP status, and close reasons. Raw headers, URL query strings, arbitrary
+origins, socket/handler error text, and tokens are never logged. Logging occurs
+only at connection/request/response/close transitions, not every UI poll.
+
+CORS is not authentication and does not encrypt the LAN token. Wildcard/arbitrary
+origins, methods, headers, and endpoints remain rejected. Chrome has now reported
+the missing allowed-origin header specifically; this implementation addresses
+that obstacle. Actual iPhone behavior remains untested. See
+[hosting strategies](docs/mobile-pwa-hosting-strategies.md).
 
 ## Development tests
 

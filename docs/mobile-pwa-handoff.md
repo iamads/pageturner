@@ -3,7 +3,7 @@
 > Updated: 2026-09-19
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Harness live; desktop Chrome confirmed Pages HTTPS cannot fetch the current Kindle HTTP API. Direct HTTPS/CORS design and actual-iPhone test pending.
+> State: Chrome identified failed CORS preflight; scoped plugin CORS implemented and locally tested, Kindle/desktop/iPhone retest pending.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Resume here
@@ -29,7 +29,7 @@ The owner reports that the initial MVP works on their Kindle, running **KOReader
 
 Do not overstate acceptance evidence:
 
-- Desktop Chrome 151 on macOS loaded the Pages shell securely but its HTTP Kindle fetch failed in 2 ms. A separate non-mutating HTTP probe reached the same listener and received 401, so this is browser-path evidence rather than a bad-token or basic-reachability result. Exact browser policy console text was not captured; no iPhone test has run.
+- Desktop Chrome 151 on macOS loaded the Pages shell securely. The owner later captured Chrome's exact error: the preflight response lacked `Access-Control-Allow-Origin`. This proves the browser received a preflight response and identifies CORS as the current obstacle; it does not prove the later POST/iPhone path. Chrome documents permission-gated local-HTTP mixed-content exemptions, so the earlier inference that TLS is necessarily required is withdrawn. No iPhone test has run.
 - The exact initial 20 alternating visible-turn test and normal-reading regressions have not been reported in detail.
 - The two 30-minute sessions have not been reported as completed.
 - Latest menu/network-info changes still lack explicit on-device confirmation in the conversation.
@@ -41,7 +41,7 @@ Do not overstate acceptance evidence:
 | Path | Responsibility / relevance |
 |---|---|
 | `pageturner.koplugin/main.lua` | Listener/menu/lifecycle, foreground-reader guard, deferred `GotoViewRel(+1/-1)` dispatch, connection popup |
-| `pageturner.koplugin/pageturner_http.lua` | Strict bodyless HTTP parsing, token validation, only POST `/next` and `/back`; **no CORS/preflight/static assets/health endpoint** |
+| `pageturner.koplugin/pageturner_http.lua` | Strict bodyless HTTP parsing, token validation, scoped Pages-origin OPTIONS/CORS for only `/next` and `/back`; no static assets/health endpoint |
 | `pageturner.koplugin/pageturner_server.lua` | Nonblocking LuaSocket **plain HTTP** transport; four clients, 4 KiB headers, two-second client expiry; **no TLS** |
 | `pageturner.koplugin/pageturner_firewall.lua` | Plugin-owned temporary Kindle firewall rules; cleanup/rollback |
 | `pageturner.koplugin/pageturner_network.lua` | Read-only SSID and Wi-Fi IPv4 lookup |
@@ -68,7 +68,7 @@ A mobile button UI is easy compared with the browser security/deployment constra
 
 1. Screen Wake Lock and service-worker capabilities require a **secure context**, normally trusted HTTPS on a phone accessing another device. An ordinary `http://192.168.x.x` Kindle origin is not the phone's localhost exception.
 2. HTTPS-page fetches to plain HTTP normally hit **mixed-content restrictions**. Adding CORS headers does not by itself solve this. Verify the exact Safari/iOS local-network behavior rather than assume a version-specific exception works.
-3. Cross-origin `Authorization` headers trigger an **OPTIONS preflight**. The current server rejects this and emits no CORS response headers. If the selected design is cross-origin, handle preflight deliberately without weakening authentication on the actual page-turn POSTs. Same-origin hosting can avoid CORS, not the secure-context requirement.
+3. Cross-origin `Authorization` headers trigger an **OPTIONS preflight**. Chrome confirmed this was rejected by the previous plugin. The current branch now answers only the exact Pages-origin `/next` and `/back` POST/Authorization preflight, while actual POSTs retain token authentication. This is locally tested but not device evidence.
 4. Adding an HTTP page to the Home Screen is not evidence that secure-context wake lock or offline caching works.
 5. A self-signed certificate or clicking past a browser warning is not automatically a valid solution. Verify actual browser trust, hostname/IP certificate matching, secure-context status, and installed-PWA behavior together.
 
@@ -76,7 +76,7 @@ A mobile button UI is easy compared with the browser security/deployment constra
 
 The two currently considered hosting strategies, including HTTP/HTTPS distinctions and operational trade-offs, are documented in [`mobile-pwa-hosting-strategies.md`](mobile-pwa-hosting-strategies.md). Keep that document open for additional strategies; no architecture is selected yet.
 
-- **Investigate first:** Trusted HTTPS on the Kindle, with same-origin PWA hosting or a separate HTTPS frontend calling it directly. Assess available TLS libraries/packaging and device resource cost before promising feasibility.
+- **Investigate first:** Copy the current plugin update and retest one command. Expected sequence: OPTIONS 204, then token-authenticated POST 202/401/409, with matching transport logs. If the browser still blocks before POST, capture the new Console/Network and private-network permission evidence before investing in TLS.
 - A different direct phone-to-Kindle browser design is acceptable only if demonstrated on the target phone and consistent with authentication, PWA, and foreground wake-lock requirements.
 - **Not selected:** HTTPS implementation, frontend stack, certificate issuance/trust provisioning, hostname/IP strategy, certificate renewal, DHCP-change handling, asset hosting, and service-worker cache/update policy.
 - **Confirmed for the spike:** GitHub Pages may provide the external static HTTPS origin for initial loading/install. It serves only public shell assets and is not a command relay. The workflow publishes `mobile-pwa/` only and contains no token.
@@ -146,4 +146,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
 - Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
 
-**Immediate next action after resuming:** Select and obtain owner acceptance for the direct HTTPS setup—likely Kindle-side TLS with a phone-trusted certificate plus narrowly scoped Pages-origin CORS/preflight—before implementation. The plain-HTTP attempt is already blocked in desktop Chrome and need not be repeated as if it could pass. Then test the combined path and wake lock on the actual iPhone. Separately remove the stale `CNAME` file from the older site's `master` branch if `abhijeet.de` should stay detached. Do not choose a laptop/cloud command relay or claim prior gates passed.
+**Immediate next action after resuming:** Follow README **Test browser connectivity and scoped CORS**: copy updated `main.lua`, `pageturner_http.lua`, and `pageturner_server.lua` without changing config/token; restart KOReader and try one command. OPTIONS should return 204 and cause no turn; the following POST must still authenticate and should return 202/401/409. Capture transport logs and browser errors, then repeat in the installed iPhone app. The PWA needs no CORS code change. No device deployment has been performed by the assistant.
