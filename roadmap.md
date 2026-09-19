@@ -1,8 +1,8 @@
 # Product Roadmap
 
 > Status: Discovery
-> Current phase: Kindle remote-control feasibility — implementation authorized; roadmap discovery paused
-> Last updated: 2026-09-18
+> Current phase: Kindle remote-control feasibility — acceptance evidence open; next-phase mobile PWA discovery approved
+> Last updated: 2026-09-19
 
 ## Vision
 ### Original vision
@@ -18,12 +18,15 @@
 - Confirmed: Enable phone voice commands to turn pages in KOReader on Kindle.
 - Confirmed: Start with a loadable KOReader plugin and laptop-issued next/back commands; try a Kindle-hosted HTTP server first.
 - Confirmed: Research page-turn integration and consider alternatives if HTTP is infeasible.
-- Confirmed: Build the minimal first version now; pause broader roadmap refinement. Focus exclusively on programmatic next/back, shared-token protection, and diagnostic timing.
+- Confirmed initial scope (2026-09-18): Build minimal programmatic next/back, shared-token protection, and diagnostic timing before broader roadmap work.
+- Confirmed revision (2026-09-19): Next, build a mobile PWA with Kindle IP/port configuration and Next/Back buttons, retaining token authentication. First prove direct iPhone-to-Kindle connectivity and foreground screen wake lock on the actual phone, then build the usable interface. Voice remains a later step.
+- Confirmed: Development for this next phase is isolated on `feat/mobile-pwa`. This update creates the roadmap revision and [handoff](docs/mobile-pwa-handoff.md) only; no PWA implementation has begun.
 
 ### Target users and core job
 - Confirmed: The owner will test laptop-to-Kindle page turning on their own Kindle first.
 - Confirmed: Personal use while reading in bed; phone voice control should remove the need to touch the Kindle to turn pages.
 - Confirmed: Possible later plugin distribution, not a current commitment or broader-user validation requirement.
+- Confirmed next use case: Owner reads in bed and uses large phone buttons without a running laptop, while the visible PWA prevents automatic screen lock when the OS grants a wake lock.
 
 ### Product principles
 - Confirmed: Establish device-level control before adding voice input.
@@ -31,9 +34,12 @@
 - Confirmed: Everything outside the added remote next/back capability should continue working as it already does. Preserve existing KOReader settings, local controls, navigation behavior, and normal lifecycle behavior.
 - Proposed implementation guardrail: Keep remote input from blocking reading or destabilizing KOReader; reuse normal reader navigation rather than modifying it.
 - Proposed: Start on a trusted local network without public internet exposure.
+- Confirmed: Phone + Kindle only for mobile operation; no running laptop bridge.
+- Confirmed: Phone wake behavior means preventing auto-lock while the PWA is visible, not keeping it executing in the background or while the phone is manually locked. Do not promise immunity to OS wake-lock revocation.
 
 ### Explicit non-goals
-- Confirmed for the first version: Phone voice recognition.
+- Confirmed for the first version and next mobile phase: Phone voice recognition.
+- Confirmed for the mobile phase: Laptop-dependent control, background/locked-screen execution, and modifications to the Kindle's sleep behavior. A foreground phone Screen Wake Lock request is in scope; changing global phone Auto-Lock settings is not the proposed implementation.
 - Confirmed: Unrelated KOReader behavior changes. Acceptance of awake-device testing is not permission to change global sleep or power settings automatically.
 - Proposed for the first version: Stock Kindle reader support, internet remote access, broad device compatibility, distribution infrastructure, monetization.
 
@@ -45,7 +51,9 @@
 - Confirmed: Owner can copy plugin files onto the Kindle; transfer method is not a blocker.
 - Confirmed: A simple shared token is acceptable for access control.
 - Unknown: Kindle model, firmware, and available development time.
-- Unknown: Phone operating system, offline/privacy requirements, and background listening needs.
+- Confirmed: Target phone OS is **iOS 26.6**, as reported by the owner. Verify the exact OS/build and browser behavior on the actual device during the spike; do not substitute a different version in planning.
+- Confirmed: Prevent phone auto-lock only while the PWA is visible. Background or locked-phone operation is not required for this phase.
+- Unknown: PWA hosting/bootstrap and offline-install requirements, acceptable certificate/trust setup, token pairing/storage UX, and privacy/background-listening requirements for the later voice phase.
 
 ## Strategic context
 ### Evidence already available
@@ -61,6 +69,9 @@
 - [Auto-turn plugin](https://github.com/koreader/koreader/blob/master/plugins/autoturn.koplugin/main.lua) invokes `self.ui:handleEvent(Event:new("GotoViewRel", 1))` through its default distance. [Dispatcher](https://github.com/koreader/koreader/blob/master/frontend/dispatcher.lua) exposes this event as “Turn pages” with signed numeric distances. Proposed next/back mapping: +1/-1; verify behavior in the owner's reading mode and book format.
 - Proposed: Use HTTP inspector only as a short, trusted-network diagnostic if available, then reuse the relevant patterns in a narrow next/back plugin. Its arbitrary event/method inspection surface is broader than this product needs.
 
+- PWA source research: [Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) requires a secure context and an active/visible document; the OS can deny/release it. [WebKit Safari 18.4 notes](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/) document Home Screen web-app wake-lock support. This is not execution evidence for the owner's reported iOS 26.6.
+- Browser transport risk: Current Kindle API is plain HTTP and has no CORS/OPTIONS handling. [Mixed-content rules](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content) normally block HTTPS-page fetches to HTTP endpoints; CORS alone is not a remedy. Exact local-network/security behavior must be verified on the target iPhone. No PWA/connectivity/wake-lock experiment has been run yet.
+
 ### Critical uncertainties
 | ID | Uncertainty / hypothesis | Why it matters | How it will be tested | Status |
 |---|---|---|---|---|
@@ -68,13 +79,16 @@
 | H2 | KOReader can accept laptop HTTP requests without blocking the UI | Determines initial transport | Inspect upstream networking and run an on-device spike | HTTP reachability observed; responsiveness guardrails need detailed evidence |
 | H3 | Next/back can safely invoke reader page navigation | Requests alone do not prove useful control | Inspect navigation events; verify visible page changes in both directions | Owner reports MVP works; exact 20-turn/regression results unreported |
 | H4 | Wireless connectivity remains usable during real reading | Sleep/power behavior may undermine practical use | Reading-session and reconnect tests | Unknown |
-| H5 | Voice commands offer repeated value with acceptable recognition errors | Determines whether phone work is justified | Owner use-case interview, then phone prototype and reading trials | Unknown |
+| H5 | Voice commands offer repeated value with acceptable recognition errors | Determines whether voice input is justified after button control | Owner use-case interview, then voice prototype and reading trials | Unknown; deferred until after mobile button control |
+| H6 | A secure-context PWA can directly control the Kindle without a laptop/relay | Determines viable mobile architecture | On-device origin/TLS/local-network/CORS experiment, including installed Home Screen mode | Unknown; first mobile experiment |
+| H7 | The visible PWA can prevent auto-lock and safely recover after visibility changes | Required for the mobile reading experience | Actual iPhone idle, background/return, and wake-lock denial/release tests | API precedent; target device untested |
+| H8 | The owner can pair/authenticate without leaking the token or excessive setup | A browser cannot read the laptop's token file automatically | Test explicit token entry/pairing and accepted storage/trust setup | Unknown; authentication remains required |
 
 ## Roadmap overview
 | Phase | Purpose | Exit outcome | Confidence | State |
 |---|---|---|---|---|
 | 1. Kindle remote-control feasibility | Prove installation, request handling, and actual page navigation | Owner demonstrates both directions from a laptop without breaking local reading | Medium; owner reports MVP success | In-device use reported; gate evidence incomplete; usability refinement |
-| 2. Usable laptop-controlled reading | Establish reliability and operational limits | Repeated reading sessions meet agreed reliability, latency, and recovery guardrails | Low | Proposed next |
+| 2. Mobile PWA control and reliability | Prove direct phone control, foreground wake lock, and usable reading sessions | Owner controls Kindle from the installed PWA without a laptop; two 30-minute sessions meet navigation/wake/recovery guardrails | Low until iPhone feasibility spike | Confirmed next scope; discovery experiment first |
 | 3. Phone voice proof of value | Test hands-free reading rather than merely speech recognition | Owner repeatedly completes useful reading sessions with acceptable command errors | Low | Directional |
 | 4. Broader-user validation, if desired | Learn whether others can adopt and benefit | Target users independently set up and repeatedly use the tool | Low | Optional; possible later plugin distribution |
 
@@ -127,49 +141,63 @@ KOReader 2026.03 is already installed; plugin file-copy access, same-Wi-Fi, and 
 ### Non-goals
 Voice recognition and phone UI. Proposed: Polished distribution and multi-device support. The <100 ms delivery target does not require e-ink refresh to complete in that time.
 
-## Next phase: Usable laptop-controlled reading
+## Next phase: Mobile PWA control and reliability
 ### Purpose and strategic question
-Does the control path remain dependable during actual reading, rather than only a short demonstration?
+Can the owner control their Kindle directly from a usable iPhone PWA, keep the phone screen awake while that PWA is visible, and rely on the controls throughout reading in bed—without a running laptop?
+
+Confirmed revision on 2026-09-19: Replaces **Usable laptop-controlled reading** with mobile button control plus reliability validation. Retains the two 30-minute sessions and no-regression guardrails; moves them onto the phone. This is a sequencing revision, not a declaration that phase 1 passed.
 
 ### Target users and use case
-Proposed: Owner reading in bed on their Kindle while using laptop-issued commands over the shared Wi-Fi, as a control-path validation step rather than the final hands-free experience.
+Confirmed: Owner, iPhone on reported iOS 26.6, and Kindle running KOReader 2026.03 on the same Wi-Fi. Enter Kindle IP/port and supply the existing authentication token, then use Next/Back buttons while the PWA remains visible. No laptop is required during use.
 
 ### Hypotheses
-H4; requests can be handled without confusing duplicates, unexpected page movement, or disruptive recovery steps.
+H6 and H7 are the first risks to resolve; H8 governs pairing/setup. H4 and reliable one-request/one-turn behavior remain relevant. Voice value (H5) is deferred, not a prerequisite for button control.
 
 ### Bets and experiments
-- Run normal reading sessions, including quiet periods, Wi-Fi interruption, and KOReader restart.
-- Establish expected behavior for sleeping devices, closed books, rapid commands, and failed requests.
-- Add only the lifecycle, configuration, access control, and diagnostics needed for dependable use.
+1. **Connectivity/wake-lock spike first (confirmed sequencing).** On the actual iPhone, record OS/build, Safari versus installed Home Screen context, secure-context status, frontend origin, Kindle endpoint, local-network permissions, and any TLS/mixed-content/CORS errors. Prove authenticated next/back and wake lock together in the intended deployment; do not treat an HTTPS wake-lock demo and an unrelated HTTP control page as a combined success.
+2. Investigate a trusted HTTPS endpoint on the Kindle or another demonstrated direct browser-to-Kindle design that satisfies secure-context requirements. This is a candidate, not a selected architecture. Evaluate certificate trust, hostname/IP matching, renewal, and DHCP changes before choosing. No running laptop bridge or command relay satisfies the confirmed phone+Kindle requirement.
+3. If using distinct origins, provide narrowly scoped preflight/CORS behavior while keeping actual commands token-authenticated. Do not remove authentication, use opaque `no-cors` requests, or assume local-network permission bypasses mixed-content rules.
+4. Once the spike passes and setup trade-offs are accepted, build a minimal mobile UI: endpoint/authentication setup, large Next/Back controls, honest connection/error feedback, and visible wake-lock state. Installation/bootstrap, offline shell behavior, and token persistence are still design decisions.
+5. Acquire a screen wake lock for the visible control session, observe release/denial, and attempt reacquisition on return to visibility as allowed by the platform. Provide an explicit end/disable action and release when appropriate; no background-execution guarantee, global Auto-Lock changes, or audio/video keep-alive tricks.
+6. Run the carried-over two 30-minute reading sessions on the phone, plus interruption cases: wrong token, unreachable/sleeping Kindle, open Kindle menu, changed IP, failed request, app background/return, and phone manual lock. Never replay uncertain page-turn commands after recovery.
 
 ### Measurement and instrumentation
-Record attempted commands, correct/incorrect visible navigation, connection failures, manual recovery, and reading disruption alongside implemented acknowledgement RTT logs. Optional battery observations may inform later decisions; do not add always-on power management or make battery research a v1 blocker.
+- Capture the exact origin/endpoint/security context and browser errors, plus Home Screen install/launch evidence on the target phone. Keep tokens out of logs, URLs, screenshots, and source control.
+- Record button taps, HTTP acknowledgements, corresponding observed page changes, RTT, errors, and recovery actions; HTTP 202 still means acceptance, not completed rendering.
+- Record wake-lock acquisition/release/denial and visibility changes. Establish the phone's existing Auto-Lock interval without changing it, then observe an idle foreground interval longer than that timeout; record elapsed time and whether the screen stayed awake.
+- Session evidence: Duration, command counts, missed/duplicate/incorrect turns, normal KOReader behavior, interruptions, and manual intervention. Keep timing diagnostic; no new <100 ms gate.
 
 ### Required outcomes and guardrails
-- P2-O1 (confirmed): Owner completes two 30-minute reading sessions with no missed/duplicate turns or disruption to normal KOReader behavior. Record command counts and timing; no numeric latency gate for now.
-- P2-O2 (proposed): Recovery from tested interruptions follows documented behavior without unexplained extra page turns or loss of reading position.
-- P2-O3: Confirmed guardrail: Existing KOReader behavior remains unchanged outside the added remote controls. Proposed acceptance evidence: Repeat baseline local-reading/lifecycle checks during session trials; power cost and network exposure must be explicitly accepted.
-- Confirmed: Do not change sleep settings or other unrelated behavior. Normal device sleep may make requests unavailable; waking remotely or preventing sleep is out of scope.
-- Proposed: Record normal-session battery observations if useful; do not add power-management features or block v1 on a battery study.
+- P2-O1 (confirmed, revised platform): Owner completes **two 30-minute phone-controlled reading sessions** with no missed/duplicate turns or disruption to normal KOReader behavior. Record command counts and timing.
+- P2-O2 (retained proposed operational criterion): Recovery from tested interruptions is understandable, with no replayed/extra page turns or lost reading position. Wake-lock denial/release is shown honestly, not as an active lock.
+- P2-O3 (confirmed): Existing Kindle/KOReader behavior and authentication remain intact. No Kindle sleep-setting changes, remote wake, automatic Wi-Fi changes, or laptop dependency. Regression and security checks remain required evidence; precise battery budget is not a blocker.
+- P2-O4 (confirmed capability; proposed measurement): Owner can install/launch the PWA on the target iPhone, supply IP/port/token, and produce one correct next and back turn using a documented direct connection with no running laptop. Repeat after relaunch and verify unauthorized requests do not turn pages. Setup/certificate steps must be explicitly accepted before broader UI work.
+- P2-O5 (confirmed capability; proposed measurement): While the installed PWA is visible and the OS grants a wake lock, the phone stays awake through an idle interval longer than its configured Auto-Lock timeout, including idle periods in the session trials. Background/manual lock and OS revocation may end the lock; return/reacquisition or an actionable unavailable state must be observed. No promise of unrestricted background operation.
 
 ### Exit gate
-Project owner reviews two 30-minute session results against P2-O1–O3 before phone integration; advancement still requires explicit acceptance of evidence.
+- **P2-G0 — feasibility checkpoint before UI investment:** Owner and developer review actual-device evidence that direct authenticated control and foreground wake lock coexist in the intended installed PWA, along with explicit acceptance of any hosting/certificate/trust setup. Proposed exact spike checks are P2-O4's bidirectional demonstration and P2-O5's idle/visibility experiment. If blocked, stop and choose a revised plan with the owner.
+- **Phase exit before voice:** Owner reviews P2-O1–O5, including both 30-minute sessions and interruption/regression results, and explicitly accepts the supported limits. No advance based merely on building a PWA or successful HTTP responses.
+- Phase 1's exact 20-command/regression evidence remains open. Mobile feasibility discovery is authorized without asserting that previous acceptance passed; resolve or explicitly document an owner-approved exception before formal phase advancement.
 
 ### Pass, mixed, and fail decisions
-- Pass: Proceed to a minimal phone voice experiment if the hands-free use case is confirmed.
-- Mixed: Resolve the failure mode or narrow supported conditions before adding voice.
-- Fail: Revisit transport, power assumptions, or whether the use case is practical.
+- Spike passes: Select the evidenced direct architecture after owner approval of setup costs; implement the small control UI, then run the session gate.
+- Phase passes: Proceed to a separate phone voice experiment after explicit owner acceptance.
+- Mixed: Fix or characterize connection, certificate, wake-lock, or reading disruptions before advancing. Retest on the phone; do not quietly weaken the phone-only or secure-context requirements.
+- Fails: Document the precise blocker and return to the owner. A laptop bridge, plain-HTTP page without standard wake lock, or native app is a scope change, not an automatic fallback. Leave the working plugin available.
 
 ### Dependencies and constraints
-Requires phase 1 evidence. Same-Wi-Fi and simple shared-token access control are confirmed. Owner may keep the device awake manually for testing; the plugin must not change sleep/power settings. Timing is diagnostic rather than a numeric gate.
+- Confirmed target: Owner-reported iOS 26.6, KOReader 2026.03, same Wi-Fi, phone+Kindle-only operation, existing bearer token, foreground-only phone wake lock.
+- Current API is HTTP-only, bodyless POST next/back, with no TLS, static hosting, health endpoint, CORS, or OPTIONS support. A static PWA alone cannot be assumed to connect successfully.
+- Unknown: Hosting/bootstrap, offline requirements, certificate provisioning/trust acceptance, frontend stack, token pairing/storage, and precise iOS local-network behavior. Investigate before committing implementation architecture.
+- Work isolated on `feat/mobile-pwa`; handoff: [Mobile PWA handoff](docs/mobile-pwa-handoff.md). The current change is documentation only.
 
 ### Non-goals
-Proposed: Cloud services, polished phone application, broad recruitment, and expanded commands.
+Voice/microphone access, locked-screen/background execution, native app packaging, running laptop/proxy dependency, public Kindle exposure, expanded commands, broad recruitment, and unrelated reader/power changes. Static asset hosting and certificate setup are unresolved—not silently approved cloud infrastructure.
 
 ## Later direction
 ### Phone voice proof of value
 - Directional purpose: Let the owner say next/back on a phone and continue reading without touching the Kindle.
-- Entry trigger: Reliable control path accepted and hands-free reading situation confirmed.
+- Entry trigger: Mobile button-control and reliability gate accepted on the actual phone; then confirm the separate voice interaction/recognition requirements.
 - Candidate outcomes: Repeated useful reading sessions; correct intended turns, few false activations, and acceptable listening/power/privacy behavior.
 - Measurement and gate: Proposed owner review of observed sessions and command-error logs against thresholds set before the prototype trial; proceed only after explicit acceptance. Mixed results lead to recognition/interaction iteration; failure prompts reconsidering voice versus simpler controls.
 - Major unknowns: Phone OS, foreground/background operation, offline recognition, ambient noise, accidental triggers, and preferred listening interaction.
@@ -189,7 +217,8 @@ Proposed: Cloud services, polished phone application, broad recruitment, and exp
 - Chosen implementation details (not separate product approvals): Manual listener per open book, default port 8088, plugin-local token config, foreground-reader guard, no automatic retries, private temporary firewall chain, normal suspend/standby cleanup and normal-resume restoration when previously enabled.
 - No sleep/settings writes, Wi-Fi activation, remote wake, arbitrary event endpoint, phone code, or distribution machinery.
 - Pending owner evidence: Exact 20 visible bidirectional turns, preserved local behavior and listener cleanup; verify updated menu placement and displayed Wi-Fi/IP/port after copying the UI update. Hardware model/firmware can be recorded during that test.
-- Broader roadmap discovery remains paused at the user's request; no phase has advanced and the full roadmap has not been declared Active.
+- 2026-09-19: Owner approved the mobile PWA phase revision and feasibility-first sequence, with foreground-only wake lock on reported iOS 26.6 and no running laptop. Branch `feat/mobile-pwa` created from `main` at `2f3140f`; roadmap and handoff only so far.
+- No phase has been declared passed. The broader roadmap still contains directional/unconfirmed decisions, so its overall status remains Discovery.
 
 ## Phase transition record
 | Date | From | To | Gate evidence | Decision owner |
@@ -205,12 +234,18 @@ Proposed: Cloud services, polished phone application, broad recruitment, and exp
 - [x] Simple shared-token access control is acceptable.
 - [x] Do not change sleep settings or unrelated behavior; focus on programmatic next/back.
 - [ ] Confirm supplemental security checks and trusted-network deployment assumptions during device setup.
-- [x] First functional demonstration: Install plugin; 20 alternating commands, each producing one correct turn; touch navigation still works.
+- [x] Defined first functional acceptance: Install plugin; 20 alternating commands, each producing one correct turn; touch navigation still works. This checked item records the criterion, not a completed trial.
+- [ ] Record exact phase 1 command/regression results or an explicit owner-approved exception before formal advancement.
 - [x] Latency boundary: <100 ms for command delivery to Kindle, not completed e-ink refresh.
 - [x] Log round-trip timing; defer latency optimization and do not impose a <100 ms first-version gate.
 - [x] Next reliability trial: Two 30-minute sessions, no missed/duplicate turns or normal-behavior disruption.
 - [ ] Time/resource constraints and acceptable manual setup?
-- [ ] Phone platform, privacy/offline requirements, and background listening expectations?
+- [x] Mobile target: Owner-reported iOS 26.6; phone+Kindle only; prevent auto-lock while the PWA is visible, not background/locked-phone execution.
+- [x] Approved next-phase replacement: Mobile PWA control + reliability; connectivity/wake-lock spike first; work on a separate branch.
+- [ ] Verify exact iPhone OS/build, installed-PWA behavior, and local-network/security restrictions during the spike.
+- [ ] Choose a direct secure-context connection design; agree acceptable certificate/hostname/trust setup before implementation commitment.
+- [ ] Decide static hosting/bootstrap, offline shell behavior, and token entry/storage/pairing UX.
+- [ ] Refine privacy/offline recognition and background listening requirements only when the later voice phase is considered.
 - [x] Preserve existing KOReader behavior outside remote next/back controls.
 - [ ] Confirm bounded regression checks, proposed phases, outcome measures, gates, and non-goals.
 
@@ -225,3 +260,5 @@ Proposed: Cloud services, polished phone application, broad recruitment, and exp
 | 2026-09-18 | Paused discovery and authorized minimal implementation; removed latency hard-gate proposal, accepted diagnostic timing and two 30-minute reliability sessions, reinforced no sleep/unrelated changes | User asks to build first version now | 1–2 | User; full roadmap remains unconfirmed |
 | 2026-09-18 | Implemented minimal HTTP plugin/client, documented v2026.03 source compatibility, and passed 27 local tests; left device gate open | Lua mocks, Python HTTP fixture, and real LuaSocket transport tests; no Kindle execution | 1 | Implementation evidence recorded by assistant; owner device validation pending |
 | 2026-09-18 | Recorded owner-reported MVP success and observed HTTP reachability; implemented requested earlier menu placement and read-only Wi-Fi/IP/port details; 39 local tests pass | Owner's usability feedback after using the MVP; upstream menu/network API research and tests. No strategy/gate change or phase transition | 1; helps next-phase setup | User for MVP report and requested UX; assistant for local implementation/test evidence |
+| 2026-09-19 | Replaced proposed laptop-only reliability phase with mobile PWA control + reliability; retained two 30-minute sessions and Kindle guardrails; added direct-connectivity/wake-lock feasibility checkpoint, kept voice later and prior evidence gaps open | User confirmed iOS 26.6, foreground auto-lock prevention only, phone+Kindle-only operation, and the proposed phase revision. Current HTTP/CORS/secure-context constraints require research first | 2 and voice entry; no phase transition | User explicitly approved scope/sequencing; detailed spike criteria and architecture remain proposed/unverified |
+| 2026-09-19 | Created `feat/mobile-pwa` from `main` at `2f3140f` and prepared `docs/mobile-pwa-handoff.md`; no PWA code or device changes | User requested separate branch, roadmap update, and handoff before continuing | 2 | User |
