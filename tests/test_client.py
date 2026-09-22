@@ -3,7 +3,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import io
 import json
 from pathlib import Path
-import re
 import tempfile
 import threading
 import unittest
@@ -86,24 +85,20 @@ class ClientTests(unittest.TestCase):
             self.assertEqual(json.loads(log.read_text()), json.loads(stdout.getvalue()))
             self.assertNotIn(self.token, log.read_text())
 
-    def test_configuration_is_random_private_consistent_and_not_overwritten(self):
+    def test_configuration_contains_only_port_and_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "pageturner.koplugin").mkdir()
-            token_file = root / ".pageturner-token"
-            with patch.object(pageturner, "ROOT", root), patch.object(pageturner, "TOKEN_FILE", token_file):
+            with patch.object(pageturner, "ROOT", root):
                 with contextlib.redirect_stdout(io.StringIO()) as stdout:
                     pageturner.configure(8088)
-                token = token_file.read_text().strip()
-                self.assertTrue(re.fullmatch("[0-9a-f]{48}", token))
                 config = root / "pageturner.koplugin" / "config.lua"
-                self.assertIn(token, config.read_text())
-                self.assertNotIn(token, stdout.getvalue())
-                self.assertEqual(token_file.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(config.read_text(), "return { port = 8088 }\n")
+                self.assertIn("in-memory bearer token", stdout.getvalue())
                 self.assertEqual(config.stat().st_mode & 0o777, 0o600)
                 with self.assertRaises(ValueError):
                     pageturner.configure(8088)
-                self.assertEqual(token, token_file.read_text().strip())
+                self.assertEqual(config.read_text(), "return { port = 8088 }\n")
 
 
 if __name__ == "__main__":

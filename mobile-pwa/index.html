@@ -20,6 +20,14 @@
 
     <section class="card" aria-labelledby="connection-title">
       <h2 id="connection-title">Connection</h2>
+      <button id="scan-qr" class="secondary scan-button" type="button">Scan Kindle pairing QR</button>
+      <section id="scanner" class="scanner" aria-label="QR scanner" hidden>
+        <video id="scanner-video" muted playsinline></video>
+        <canvas id="scanner-canvas" hidden></canvas>
+        <p id="scanner-state" class="state" role="status">Camera inactive</p>
+        <button id="cancel-scan" class="secondary" type="button">Cancel scan</button>
+      </section>
+      <p class="separator" aria-hidden="true">or enter manually</p>
       <form id="connection-form">
         <label>Kindle endpoint
           <input id="endpoint-input" name="endpoint" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="192.168.1.42 or https://kindle.tailnet.ts.net" required>
@@ -57,6 +65,7 @@
         <div><dt>Display mode</dt><dd id="diag-display"></dd></div>
         <div><dt>Visibility</dt><dd id="diag-visibility"></dd></div>
         <div><dt>Wake Lock API</dt><dd id="diag-wake-api"></dd></div>
+        <div><dt>Camera API</dt><dd id="diag-camera-api"></dd></div>
         <div><dt>Service worker</dt><dd id="diag-worker"></dd></div>
         <div><dt>Endpoint</dt><dd id="diag-endpoint">Not configured</dd></div>
         <div><dt>Last event</dt><dd id="diag-event">App loaded</dd></div>
@@ -65,6 +74,7 @@
       <p class="hint">Diagnostics never include the token. Browser errors are reduced to an error type and message.</p>
     </details>
   </main>
+  <script src="vendor/jsQR.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

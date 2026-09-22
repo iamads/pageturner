@@ -30,6 +30,41 @@ local function preflight(path, origin, method, headers, private_network)
         .. (private_network and "Access-Control-Request-Private-Network: " .. private_network .. "\r\n" or "")
         .. "\r\n"
 end
+local Pairing = require("pageturner_pairing")
+local Endpoint = require("pageturner_endpoint")
+test("pairing token uses 32 secure random bytes and produces JSON-safe hex", function()
+    local bytes = string.char(0, 1, 15, 16, 254, 255) .. string.rep("z", 26)
+    local generated = assert(Pairing.generateToken(function(count) eq(count, 32); return bytes end))
+    eq(#generated, 64)
+    eq(generated:sub(1, 12), "00010f10feff")
+    assert(generated:match("^[a-f0-9]+$"))
+    eq(Pairing.generateToken(function() return "short" end), nil)
+end)
+test("pairing payload is versioned and rejects unsafe values", function()
+    local payload = assert(Pairing.payload("https://kindle.example.ts.net", token))
+    eq(payload, '{"version":1,"endpoint":"https://kindle.example.ts.net","token":"' .. token .. '"}')
+    eq(Pairing.payload("https://kindle.example.ts.net/next", token), nil)
+    eq(Pairing.payload("https://kindle.example.ts.net", "short"), nil)
+end)
+test("endpoint resolver selects only Serve mapped to the current backend", function()
+    local status = "https://kindle.example.ts.net (tailnet only)\n"
+        .. "|-- / proxy http://127.0.0.1:8088\n"
+    eq(Endpoint.parseServeStatus(status, 8088), "https://kindle.example.ts.net")
+    eq(Endpoint.parseServeStatus(status, 8089), nil)
+    eq(Endpoint.parseServeStatus("https://evil.example\n|-- / proxy http://127.0.0.1:8088", 8088), nil)
+    eq(Endpoint.localUrl({address = "192.168.1.42"}, 8088), "http://192.168.1.42:8088")
+    eq(Endpoint.localUrl({}, 8088), nil)
+end)
+test("Serve probe command is fixed, bounded and contains no pairing secret", function()
+    local command
+    local path = Endpoint.startServeProbe(7, function(value) command = value; return 0 end)
+    eq(path, "/tmp/pageturner-serve-status-7.log")
+    assert(command:find("timeout -t 3", 1, true))
+    assert(command:find("serve status", 1, true))
+    assert(not command:find(token, 1, true))
+    Endpoint.cancelServeProbe(path)
+end)
+
 local HTTP = require("pageturner_http")
 test("only next/back map to signed reader navigation", function()
     eq(HTTP.command(request(), token), 1)
@@ -318,14 +353,17 @@ end)
 local Widget = {}
 function Widget:extend(t) t = t or {}; t.__index = t; return setmetatable(t, {__index = self}) end
 function Widget:new(t) t = setmetatable(t or {}, self); if t.init then t:init() end; return t end
-local manager = {tasks = {}, queues = {}}
+local manager = {tasks = {}, queues = {}, shown = {}}
 function manager:nextTick(fn) self.tasks[#self.tasks + 1] = fn end
+function manager:scheduleIn(_, fn) self.tasks[#self.tasks + 1] = fn end
 function manager:unschedule(fn)
     for i = #self.tasks, 1, -1 do if self.tasks[i] == fn then table.remove(self.tasks, i) end end
 end
 function manager:insertZMQ(server) self.queues[server] = true end
 function manager:removeZMQ(server) self.queues[server] = nil end
 function manager:getTopmostVisibleWidget() return self.top end
+function manager:show(widget) self.shown[#self.shown + 1] = widget end
+function manager:close(widget) widget.closed = true end
 function manager:tick() local tasks = self.tasks; self.tasks = {}; for _, fn in ipairs(tasks) do fn() end end
 package.loaded["ui/widget/container/widgetcontainer"] = Widget
 package.loaded["ui/uimanager"] = manager
@@ -347,13 +385,16 @@ package.loaded.pageturner_firewall = {new = function(_, port)
 end}
 local menu_order = {tools = {"read_timer", "calibre", "more_tools"}, more_tools = {"httpinspector"}}
 package.loaded["ui/elements/reader_menu_order"] = menu_order
+local original_generate_token = Pairing.generateToken
+Pairing.generateToken = function() return token end
 local Plugin = dofile("pageturner.koplugin/main.lua")
-local function plugin()
+local function plugin(enable_pairing)
     local reader = {document = {}, events = {}, menu = {registerToMainMenu = function() end}}
     function reader:handleEvent(event) self.events[#self.events + 1] = event end
     manager.top = reader
     local instance = Plugin:new{ui = reader, path = "pageturner.koplugin"}
-    instance.readConfig = function() return {port = 8088, token = token} end
+    instance.readConfig = function() return {port = 8088} end
+    if not enable_pairing then instance.preparePairing = function() end end
     return instance, reader
 end
 test("plugin starts disabled, acknowledges before dispatch and sends exactly one event", function()
@@ -420,14 +461,21 @@ test("stop, close, and reader changes cancel deferred commands", function()
     manager.top = reader; p:onRequest(request()); p:onCloseDocument(); manager:tick()
     eq(#reader.events, 0); eq(p.enabled, false); eq(p.server, nil)
 end)
-test("suspend cleans up and normal resume only restores an enabled listener", function()
+test("session token survives normal suspend but rotates after close", function()
+    local generated = {string.rep("b", 64), string.rep("c", 64)}
+    Pairing.generateToken = function() return table.remove(generated, 1) end
     local p = plugin(); p:onResume(); eq(p.server, nil)
-    assert(p:start()); p.enabled = true; p:onSuspend()
-    eq(p.server, nil); eq(p.enabled, true); eq(p.firewall, nil)
-    p:onResume(); assert(p.server)
-    p:onEnterStandby(); eq(p.server, nil)
-    p:onLeaveStandby(); assert(p.server)
-    p:onCloseWidget(); p:onResume(); eq(p.server, nil)
+    assert(p:start()); p.enabled = true
+    local first = p.session_token
+    p:onSuspend(); eq(p.server, nil); eq(p.session_token, first)
+    p:onResume(); assert(p.server); eq(p.session_token, first)
+    p:onEnterStandby(); eq(p.server, nil); eq(p.session_token, first)
+    p:onLeaveStandby(); assert(p.server); eq(p.session_token, first)
+    p:onCloseWidget(); eq(p.session_token, nil); p:onResume(); eq(p.server, nil)
+    assert(p:start()); assert(p.session_token ~= first)
+    assert(p:onRequest(request(nil, first)):find("401 Unauthorized", 1, true))
+    p:stop()
+    Pairing.generateToken = function() return token end
 end)
 test("bind or firewall failure leaves no live listener/queue", function()
     local p = plugin()
@@ -437,16 +485,16 @@ test("bind or firewall failure leaves no live listener/queue", function()
     eq(last_listener.closed, true); eq(p.server, nil); eq(next(manager.queues), nil)
     p:stop()
 end)
-test("configuration rejects missing token and invalid port without exposing secrets", function()
+test("configuration requires only a valid listener port", function()
     local original = dofile
     local p = plugin()
-    local configs = {{}, {port = 8088, token = ""}, {port = "8088; bad", token = token}, {port = 8088.5, token = token}}
+    local configs = {{}, {port = "8088; bad"}, {port = 8088.5}, {port = 80}}
     for _, config in ipairs(configs) do
         _G.dofile = function() return config end
-        local result, err = Plugin.readConfig(p)
-        eq(result, nil); assert(not err:find(token, 1, true))
+        local result = Plugin.readConfig(p)
+        eq(result, nil)
     end
-    _G.dofile = function() return {port = 8088, token = token} end
+    _G.dofile = function() return {port = 8088} end
     assert(Plugin.readConfig(p))
     _G.dofile = original
 end)
@@ -458,8 +506,9 @@ test("Page Turner is first in Tools without duplicates or reordering other entri
     eq(table.concat(menu_order.more_tools, ","), "httpinspector")
     eq(items.pageturner.sorting_hint, "tools")
     eq(items.pageturner.sub_item_table[2].enabled_func(), false)
+    eq(items.pageturner.sub_item_table[3].enabled_func(), false)
 end)
-test("manual start shows fresh Wi-Fi/IP/port; details refresh without exposing token", function()
+test("manual start prepares pairing and details refresh without exposing token", function()
     local Network = require("pageturner_network")
     local original = Network.snapshot
     local snapshots = 0
@@ -468,38 +517,70 @@ test("manual start shows fresh Wi-Fi/IP/port; details refresh without exposing t
         return {ssid = "Bedroom", ip = "192.168.0." .. snapshots, address = "192.168.0." .. snapshots}
     end
     local p = plugin()
-    local messages, updates = {}, 0
+    local messages, updates, pairing_calls = {}, 0, 0
     p.notify = function(_, text) messages[#messages + 1] = text end
+    p.preparePairing = function() pairing_calls = pairing_calls + 1 end
     local items = {}; p:addToMainMenu(items)
     local submenu = items.pageturner.sub_item_table
     local menu = {updateItems = function() updates = updates + 1 end}
     submenu[1].callback(menu)
-    eq(p.enabled, true); eq(updates, 1); eq(#messages, 1)
-    assert(messages[1]:find("Wi-Fi: Bedroom\nKindle IP: 192.168.0.1\nPort: 8088", 1, true))
-    assert(messages[1]:find("http://192.168.0.1:8088", 1, true))
-    assert(not messages[1]:find(token, 1, true))
+    eq(p.enabled, true); eq(updates, 1); eq(pairing_calls, 1); eq(#messages, 0)
     eq(submenu[2].enabled_func(), true)
-    submenu[2].callback()
-    assert(messages[2]:find("Kindle IP: 192.168.0.2", 1, true))
-    p:onSuspend(); p:onResume(); eq(#messages, 2) -- no popup on automatic resume
+    submenu[2].callback(); eq(pairing_calls, 2)
+    submenu[3].callback()
+    assert(messages[1]:find("Wi-Fi: Bedroom\nKindle IP: 192.168.0.1\nPort: 8088", 1, true))
+    assert(messages[1]:find("Local Wi-Fi: http://192.168.0.1:8088", 1, true))
+    assert(not messages[1]:find(token, 1, true))
+    p:onSuspend(); p:onResume(); eq(#messages, 1) -- no QR or popup on automatic resume
     submenu[1].callback(menu)
-    eq(p.enabled, false); eq(#messages, 2); eq(submenu[2].enabled_func(), false)
+    eq(p.enabled, false); eq(#messages, 1); eq(submenu[2].enabled_func(), false)
     Network.snapshot = original
+end)
+test("pairing prefers matching private Serve and falls back to local Wi-Fi", function()
+    local Network = require("pageturner_network")
+    local original_snapshot = Network.snapshot
+    local original_start = Endpoint.startServeProbe
+    local original_read = Endpoint.readServeProbe
+    local original_cancel = Endpoint.cancelServeProbe
+    Network.snapshot = function()
+        return {ssid = "Bedroom", ip = "192.168.0.8", address = "192.168.0.8"}
+    end
+    Endpoint.startServeProbe = function() return "/tmp/pageturner-serve-status-99.log" end
+    local output = "https://kindle.example.ts.net (tailnet only)\n"
+        .. "|-- / proxy http://127.0.0.1:8088\n"
+    Endpoint.readServeProbe = function() return output end
+    Endpoint.cancelServeProbe = function() end
+
+    local p = plugin(true)
+    local shown = {}
+    p.showPairing = function(_, endpoint, route) shown[#shown + 1] = {endpoint, route} end
+    assert(p:start()); p:preparePairing(); manager:tick()
+    eq(shown[1][1], "https://kindle.example.ts.net"); eq(shown[1][2], "tailscale")
+
+    output = "https://kindle.example.ts.net (tailnet only)\n"
+        .. "|-- / proxy http://127.0.0.1:9999\n"
+    p:preparePairing(); manager:tick()
+    eq(shown[2][1], "http://192.168.0.8:8088"); eq(shown[2][2], "local")
+    p:stop()
+    Network.snapshot = original_snapshot
+    Endpoint.startServeProbe = original_start
+    Endpoint.readServeProbe = original_read
+    Endpoint.cancelServeProbe = original_cancel
 end)
 test("network information failure cannot prevent startup or invent a usable URL", function()
     local Network = require("pageturner_network")
     local original = Network.snapshot
     Network.snapshot = function() error("unsupported platform API") end
     local p = plugin()
-    local messages = {}
-    p.notify = function(_, text) messages[#messages + 1] = text end
     local items = {}; p:addToMainMenu(items)
     items.pageturner.sub_item_table[1].callback()
     assert(p.server); eq(p.enabled, true)
-    assert(messages[1]:find("Wi-Fi: Unavailable", 1, true))
-    assert(messages[1]:find("Port: 8088", 1, true))
-    assert(not messages[1]:find("http://", 1, true))
+    local details = p:connectionInfoText()
+    assert(details:find("Wi-Fi: Unavailable", 1, true))
+    assert(details:find("Port: 8088", 1, true))
+    assert(not details:find("http://", 1, true))
     p:stop(); eq(p:connectionInfoText(), "Page Turner is not listening.")
     Network.snapshot = original
 end)
+Pairing.generateToken = original_generate_token
 print("Passed " .. count .. " tests (mocked KOReader and sockets; on-device verification still required).")

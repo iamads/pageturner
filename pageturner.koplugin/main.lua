@@ -8,6 +8,8 @@ local HTTP = require("pageturner_http")
 local Server = require("pageturner_server")
 local Firewall = require("pageturner_firewall")
 local Network = require("pageturner_network")
+local Endpoint = require("pageturner_endpoint")
+local Pairing = require("pageturner_pairing")
 
 local PageTurner = WidgetContainer:extend{
     name = "pageturner",
@@ -17,6 +19,7 @@ local PageTurner = WidgetContainer:extend{
 function PageTurner:init()
     self.enabled = false -- opt-in per open book; never persist or autostart
     self.sequence = 0
+    self.pairing_probe_sequence = 0
     self.ui.menu:registerToMainMenu(self)
 end
 
@@ -29,10 +32,6 @@ function PageTurner:readConfig()
     local ok, config = pcall(dofile, self.path .. "/config.lua")
     if not ok or type(config) ~= "table" then
         return nil, "Create pageturner.koplugin/config.lua first. See the Page Turner README."
-    end
-    if type(config.token) ~= "string" or #config.token < 32 or #config.token > 128
-        or not config.token:match("^[%w_-]+$") then
-        return nil, "Set a random 32–128 character token (letters, digits, - or _) in config.lua."
     end
     if type(config.port) ~= "number" or config.port ~= math.floor(config.port)
         or config.port < 1024 or config.port > 65535 then
@@ -50,6 +49,12 @@ function PageTurner:start()
     end
     local config, err = self:readConfig()
     if not config then return nil, err end
+    local new_session = self.session_token == nil
+    if new_session then
+        self.session_token, err = Pairing.generateToken()
+        if not self.session_token then return nil, err end
+    end
+    config.token = self.session_token
     local server = Server:new{
         port = config.port,
         now = function() return time.to_number(time.now()) end,
@@ -60,13 +65,17 @@ function PageTurner:start()
     }
     local ok
     ok, err = server:start()
-    if not ok then return nil, "Could not listen on port " .. config.port .. ": " .. tostring(err) end
+    if not ok then
+        if new_session then self.session_token = nil end
+        return nil, "Could not listen on port " .. config.port .. ": " .. tostring(err)
+    end
     -- Bind first, so a conflicting listener cannot leave open firewall rules.
     if Device:isKindle() then
         self.firewall = Firewall:new(config.port)
         ok, err = self.firewall:open()
         if not ok then
             server:stop()
+            if new_session then self.session_token = nil end
             return nil, err
         end
     end
@@ -77,9 +86,15 @@ function PageTurner:start()
     return true
 end
 
-function PageTurner:stop()
-    -- Invalidate deferred commands before releasing resources.
+function PageTurner:stop(preserve_session)
+    -- Invalidate deferred commands and pairing work before releasing resources.
     if self.pending then UIManager:unschedule(self.pending); self.pending = nil end
+    if self.pairing_poll then UIManager:unschedule(self.pairing_poll); self.pairing_poll = nil end
+    if self.pairing_probe then Endpoint.cancelServeProbe(self.pairing_probe); self.pairing_probe = nil end
+    if self.pairing_message and UIManager.close then
+        pcall(function() UIManager:close(self.pairing_message) end)
+        self.pairing_message = nil
+    end
     if self.server then
         UIManager:removeZMQ(self.server)
         self.server:stop()
@@ -94,6 +109,12 @@ function PageTurner:stop()
         end
     end
     self.config = nil
+    if not preserve_session then
+        self.session_token = nil
+        self.pairing_endpoint = nil
+        self.pairing_route = nil
+        self.pairing_payload = nil
+    end
 end
 
 function PageTurner:readerReady()
@@ -155,13 +176,80 @@ function PageTurner:connectionInfoText()
         "Kindle IP: " .. network.ip,
         "Port: " .. self.config.port,
     }
-    if network.address then
+    if self.pairing_endpoint then
         lines[#lines + 1] = ""
-        lines[#lines + 1] = "http://" .. network.address .. ":" .. self.config.port
+        lines[#lines + 1] = (self.pairing_route == "tailscale" and "Private Tailscale: " or "Local Wi-Fi: ")
+            .. self.pairing_endpoint
+    elseif network.address then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "Local Wi-Fi: http://" .. network.address .. ":" .. self.config.port
     end
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Close this message and the menu before sending commands."
     return table.concat(lines, "\n")
+end
+
+function PageTurner:showPairing(endpoint, route)
+    local payload, err = Pairing.payload(endpoint, self.session_token)
+    if not payload then self:notify(err); return end
+    self.pairing_endpoint = endpoint
+    self.pairing_route = route
+    self.pairing_payload = payload
+    local PairingMessage = require("pageturner_pairing_message")
+    local message
+    message = PairingMessage:new{
+        payload = payload,
+        endpoint = endpoint,
+        route = route,
+        dismiss_callback = function()
+            if self.pairing_message == message then self.pairing_message = nil end
+        end,
+    }
+    self.pairing_message = message
+    UIManager:show(message)
+end
+
+function PageTurner:preparePairing()
+    if not self.server or not self.config or not self.session_token then return end
+    if self.pairing_poll then UIManager:unschedule(self.pairing_poll); self.pairing_poll = nil end
+    if self.pairing_probe then Endpoint.cancelServeProbe(self.pairing_probe); self.pairing_probe = nil end
+
+    local ok, network = pcall(Network.snapshot)
+    if not ok then network = {} end
+    local local_url = Endpoint.localUrl(network, self.config.port)
+    if not Device:isKindle() then
+        if local_url then self:showPairing(local_url, "local")
+        else self:notify("Page Turner is listening, but no pairing endpoint is available.") end
+        return
+    end
+
+    self.pairing_probe_sequence = self.pairing_probe_sequence + 1
+    self.pairing_probe = Endpoint.startServeProbe(self.pairing_probe_sequence)
+    if not self.pairing_probe then
+        if local_url then self:showPairing(local_url, "local")
+        else self:notify("Page Turner is listening, but no pairing endpoint is available.") end
+        return
+    end
+
+    local deadline = time.to_number(time.now()) + 4
+    local poll
+    poll = function()
+        if self.pairing_poll ~= poll or not self.server then return end
+        local output = Endpoint.readServeProbe(self.pairing_probe)
+        if output ~= nil or time.to_number(time.now()) >= deadline then
+            if output == nil then Endpoint.cancelServeProbe(self.pairing_probe) end
+            self.pairing_probe = nil
+            self.pairing_poll = nil
+            local private_url = Endpoint.parseServeStatus(output or "", self.config.port)
+            if private_url then self:showPairing(private_url, "tailscale")
+            elseif local_url then self:showPairing(local_url, "local")
+            else self:notify("Page Turner is listening, but no pairing endpoint is available.") end
+            return
+        end
+        UIManager:scheduleIn(0.2, poll)
+    end
+    self.pairing_poll = poll
+    UIManager:scheduleIn(0.1, poll)
 end
 
 function PageTurner:addToMainMenu(menu_items)
@@ -193,15 +281,21 @@ function PageTurner:addToMainMenu(menu_items)
                     else
                         local ok, err = self:start()
                         self.enabled = ok == true
-                        message = ok and self:connectionInfoText() or err
+                        if ok then self:preparePairing() else message = err end
                     end
                     if menu then menu:updateItems() end
                     if message then self:notify(message) end
                 end,
             },
             {
+                text = "Show pairing QR",
+                enabled_func = function() return self.server ~= nil end,
+                keep_menu_open = true,
+                callback = function() self:preparePairing() end,
+            },
+            {
                 text_func = function()
-                    return self.server and "Connection details (Wi-Fi / IP / port)" or "Not listening"
+                    return self.server and "Connection details (route / IP / port)" or "Not listening"
                 end,
                 enabled_func = function() return self.server ~= nil end,
                 keep_menu_open = true,
@@ -213,13 +307,14 @@ end
 
 -- Mirror lifecycle events without requesting/preventing sleep or enabling Wi-Fi.
 -- The selected listener resumes only if KOReader itself resumes normally.
-function PageTurner:onSuspend() self:stop() end
-function PageTurner:onEnterStandby() self:stop() end
+function PageTurner:onSuspend() self:stop(true) end
+function PageTurner:onEnterStandby() self:stop(true) end
 function PageTurner:onResume()
     if self.enabled and not self.server then
         local ok, err = self:start()
         if not ok then
             self.enabled = false
+            self.session_token = nil
             logger.warn("PageTurner: resume failed", err)
         end
     end

@@ -44,7 +44,7 @@ Use [ui/time](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/tim
 
 - Document-only plugin with an explicit start/stop menu and generated plugin-local config; no global settings writes.
 - Default TCP port 8088; IPv4 listener on device interfaces. Trusted LAN only, no TLS, public exposure, or discovery service.
-- Bodyless `POST /next` and `/back` with a random shared bearer token.
+- Bodyless `POST /next` and `/back` with a 32-byte OS-random bearer token generated for each manual listener session.
 - HTTP 202 acknowledges acceptance before deferred dispatch; rendering is verified separately.
 - Reject covered/no-longer-active readers and concurrent pending turns; never auto-retry uncertain requests.
 - A private iptables chain avoids deleting another plugin's similar rules. Binding happens before firewall setup; failed startup rolls back. Only normal lifecycle cleanup is guaranteed—abrupt process termination can leave stale rules.
@@ -56,6 +56,18 @@ Use [ui/time](https://github.com/koreader/koreader/blob/v2026.03/frontend/ui/tim
 - [Kindle network manager methods](https://github.com/koreader/koreader/blob/v2026.03/frontend/device/kindle/device.lua) provide `getCurrentNetwork().ssid` through a read-only LIPC query and `getNetworkInterfaceName()` (`wlan0`). `isWifiOn()` is a sysfs query on Kindle. No scan or connection action is used.
 - `getifaddrs` / numeric `getnameinfo`, already declared by KOReader's `ffi/posix_h`, provide an **up-interface Wi-Fi IPv4 address**, not USB/loopback/IPv6 or the listener's wildcard bind address. Allocated lists are freed even if conversion fails. This follows the read-only enumeration pattern in [Device:retrieveNetworkInfo](https://github.com/koreader/koreader/blob/v2026.03/frontend/device/generic/device.lua), without that method's gateway ping or localized-text parsing.
 - Missing/unsupported information remains explicit rather than blocking listener startup or presenting a guessed URL. The popup never includes the bearer token.
+
+## QR pairing support
+
+KOReader v2026.03 contains built-in QR rendering rather than requiring an external Kindle binary:
+
+- `frontend/ui/widget/qrwidget.lua` uses bundled `ffi/qrencode` and accepts payloads up to 2,953 bytes.
+- `frontend/ui/widget/qrmessage.lua` displays a full-screen QR and handles tap/key dismissal.
+- `plugins/qrclipboard.koplugin/main.lua` is an existing on-device example that shows phone-scannable clipboard content.
+
+Page Turner's versioned endpoint/token JSON is far below the size limit. A custom pairing message composes `QRWidget` with wrapped text underneath so the user can verify **Private Tailscale** versus **Local Wi-Fi** and the selected endpoint without displaying the token. This is source-level feasibility evidence; QR sizing/readability on the Paperwhite 3 and camera decoding on the actual phone still require device tests.
+
+Session tokens should come from 32 bytes read from `/dev/urandom`, be held only in memory, survive normal suspend/resume for the same enabled reading session, and be invalidated by manual Stop, book close or KOReader exit. A missing/short random read must fail closed rather than fall back to time-seeded randomness.
 
 ## If it fails on the Kindle
 

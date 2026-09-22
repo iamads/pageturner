@@ -1,6 +1,6 @@
--- Prefer generating config.lua with: python3 tools/pageturner.py configure
--- For manual setup, copy this file to config.lua and replace the empty token.
+-- Copy this file to config.lua only when changing the listener port.
+-- The bearer token is generated securely in memory on each manual start and
+-- displayed only in the pairing QR code.
 return {
     port = 8088,
-    token = "", -- Random 32–128 characters: letters, digits, '-' or '_'.
 }

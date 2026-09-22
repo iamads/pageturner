@@ -1,15 +1,19 @@
 import { parseEndpoint } from "./endpoint.js";
+import { parsePairingPayload } from "./pairing.js";
 
 const $ = (id) => document.getElementById(id);
 
 const elements = {
   form: $("connection-form"), endpointInput: $("endpoint-input"),
-  token: $("token"), connection: $("connection-state"),
+  token: $("token"), connection: $("connection-state"), scan: $("scan-qr"),
+  scanner: $("scanner"), video: $("scanner-video"), canvas: $("scanner-canvas"),
+  scannerState: $("scanner-state"), cancelScan: $("cancel-scan"),
   start: $("start-session"), end: $("end-session"), wake: $("wake-state"),
   next: $("next"), back: $("back"), command: $("command-state"),
   origin: $("diag-origin"), secure: $("diag-secure"), display: $("diag-display"),
   visibility: $("diag-visibility"), wakeApi: $("diag-wake-api"),
-  worker: $("diag-worker"), endpoint: $("diag-endpoint"), event: $("diag-event"),
+  cameraApi: $("diag-camera-api"), worker: $("diag-worker"),
+  endpoint: $("diag-endpoint"), event: $("diag-event"),
   copy: $("copy-diagnostics"),
 };
 
@@ -17,6 +21,8 @@ let connection = null;
 let wakeSentinel = null;
 let sessionWanted = false;
 let requestPending = false;
+let cameraStream = null;
+let scanFrame = null;
 
 function displayMode() {
   if (matchMedia("(display-mode: standalone)").matches || navigator.standalone === true) return "standalone";
@@ -43,6 +49,7 @@ function updateDiagnostics() {
   elements.display.textContent = displayMode();
   elements.visibility.textContent = document.visibilityState;
   elements.wakeApi.textContent = "wakeLock" in navigator ? "available" : "unavailable";
+  elements.cameraApi.textContent = navigator.mediaDevices?.getUserMedia ? "available" : "unavailable";
   elements.worker.textContent = "serviceWorker" in navigator ? "available" : "unavailable";
 }
 
@@ -53,21 +60,108 @@ function parseConnection() {
   return {...endpoint, token};
 }
 
+function useConnection(nextConnection, source) {
+  connection = nextConnection;
+  elements.endpointInput.value = connection.baseUrl;
+  elements.token.value = "";
+  elements.connection.textContent = `Configured for ${connection.baseUrl}`;
+  elements.endpoint.textContent = connection.baseUrl;
+  record(`Connection configured from ${source} (${connection.transport}, ${connection.protocol}, token omitted)`);
+  updateControls();
+}
+
 elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   try {
-    connection = parseConnection();
-    elements.connection.textContent = `Configured for ${connection.baseUrl}`;
-    elements.endpoint.textContent = connection.baseUrl;
-    elements.token.value = "";
-    record(`Connection configured (${connection.transport}, ${connection.protocol}, token omitted)`);
+    useConnection(parseConnection(), "manual entry");
   } catch (error) {
     connection = null;
     elements.connection.textContent = error.message;
     elements.endpoint.textContent = "Not configured";
     record(`Configuration rejected: ${error.message}`);
+    updateControls();
   }
-  updateControls();
+});
+
+function stopScanner() {
+  if (scanFrame !== null) cancelAnimationFrame(scanFrame);
+  scanFrame = null;
+  if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  elements.video.srcObject = null;
+  elements.scanner.hidden = true;
+}
+
+function scanVideoFrame() {
+  if (!cameraStream) return;
+  const video = elements.video;
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+    const scale = Math.min(1, 960 / video.videoWidth);
+    const width = Math.max(1, Math.round(video.videoWidth * scale));
+    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    const canvas = elements.canvas;
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", {willReadFrequently: true});
+    context.drawImage(video, 0, 0, width, height);
+    const pixels = context.getImageData(0, 0, width, height);
+    const result = window.jsQR(pixels.data, width, height, {inversionAttempts: "dontInvert"});
+    if (result && result.data) {
+      try {
+        const paired = parsePairingPayload(result.data);
+        stopScanner();
+        useConnection(paired, "pairing QR");
+        elements.command.textContent = "Pairing QR accepted. No command was sent.";
+        return;
+      } catch (error) {
+        elements.scannerState.textContent = error.message;
+      }
+    }
+  }
+  scanFrame = requestAnimationFrame(scanVideoFrame);
+}
+
+async function startScanner() {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    elements.connection.textContent = "Camera scanning requires a secure context and camera-capable browser.";
+    record("QR scanner unavailable");
+    return;
+  }
+  if (typeof window.jsQR !== "function") {
+    elements.connection.textContent = "QR decoder failed to load; use manual entry.";
+    record("QR decoder unavailable");
+    return;
+  }
+
+  stopScanner();
+  elements.scanner.hidden = false;
+  elements.scannerState.textContent = "Requesting camera permission…";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {facingMode: {ideal: "environment"}},
+    });
+    if (document.visibilityState !== "visible") {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error("Return to the visible app and try scanning again.");
+    }
+    cameraStream = stream;
+    elements.video.srcObject = stream;
+    await elements.video.play();
+    elements.scannerState.textContent = "Point the camera at the Kindle QR code.";
+    scanFrame = requestAnimationFrame(scanVideoFrame);
+    record("QR scanner started (payload omitted)");
+  } catch (error) {
+    stopScanner();
+    elements.connection.textContent = `Camera unavailable: ${error.name || "Error"}: ${error.message}`;
+    record(`QR scanner failed: ${error.name || "Error"}: ${error.message}`);
+  }
+}
+
+elements.scan.addEventListener("click", startScanner);
+elements.cancelScan.addEventListener("click", () => {
+  stopScanner();
+  record("QR scanner cancelled");
 });
 
 async function acquireWakeLock() {
@@ -112,6 +206,10 @@ elements.end.addEventListener("click", async () => {
 
 document.addEventListener("visibilitychange", async () => {
   updateDiagnostics();
+  if (document.visibilityState !== "visible" && cameraStream) {
+    stopScanner();
+    record("QR scanner stopped because app became hidden");
+  }
   record(`Visibility changed to ${document.visibilityState}`);
   if (document.visibilityState === "visible" && sessionWanted && (!wakeSentinel || wakeSentinel.released)) {
     try {
@@ -164,6 +262,8 @@ async function sendCommand(command) {
 elements.next.addEventListener("click", () => sendCommand("next"));
 elements.back.addEventListener("click", () => sendCommand("back"));
 
+window.addEventListener("pagehide", stopScanner);
+
 elements.copy.addEventListener("click", async () => {
   const lines = [
     `Recorded: ${new Date().toISOString()}`,
@@ -173,6 +273,7 @@ elements.copy.addEventListener("click", async () => {
     `Display mode: ${displayMode()}`,
     `Visibility: ${document.visibilityState}`,
     `Wake Lock API: ${"wakeLock" in navigator}`,
+    `Camera API: ${Boolean(navigator.mediaDevices?.getUserMedia)}`,
     `Service worker: ${"serviceWorker" in navigator}`,
     `Endpoint: ${connection ? connection.baseUrl : "not configured"}`,
     `Wake state: ${elements.wake.textContent}`,

@@ -1,6 +1,6 @@
 # Page Turner for KOReader
 
-Minimal Kindle plugin: send authenticated HTTP commands from your laptop to turn the open book **next** or **back**. Designed against KOReader **2026.03** source. The owner reports the initial MVP works on their Kindle; the latest menu/network-info improvements still need on-device verification.
+Minimal Kindle plugin and phone PWA: scan a pairing QR and send authenticated HTTP commands to turn the open book **next** or **back**. Designed against KOReader **2026.03** source. QR pairing and camera scanning are implemented but still require on-device validation.
 
 No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi management, touch controls, or page-rendering behavior. The server is manually enabled per open book.
 
@@ -12,7 +12,7 @@ No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi managem
    python3 tools/pageturner.py configure
    ```
 
-   This generates a random shared token in `.pageturner-token` and `pageturner.koplugin/config.lua`. Keep both private. It refuses to overwrite existing configuration. Default port: **8088**; use `configure --port 8089` if needed.
+   This creates `pageturner.koplugin/config.lua` containing only the listener port. It refuses to overwrite existing configuration. Default port: **8088**; use `configure --port 8089` if needed. The Kindle generates the bearer token securely in memory on each manual listener start.
 
 2. Copy the **entire `pageturner.koplugin` folder**, including the generated `config.lua`, into the Kindle's KOReader `plugins` folder:
 
@@ -25,40 +25,31 @@ No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi managem
    On typical Kindle installations this is `/mnt/us/koreader/plugins/` (the `koreader/plugins` directory on the USB drive). Use your actual KOReader installation location. No extra Kindle dependencies are needed beyond KOReader's bundled LuaSocket.
 
 3. Safely eject the Kindle, restart KOReader, and open a book. Tap the top of the screen → **Tools → Page Turner (HTTP) → Start Page Turner**. Page Turner is the first entry on the default Tools menu, not inside More tools. Explicit custom menu-order settings still take precedence. If it is missing, check KOReader's plugin manager and restart after enabling it.
-4. Starting the listener shows **Wi-Fi name, Kindle IPv4 address, port, and base URL**. You can reopen **Connection details (Wi-Fi / IP / port)** for fresh information if the network changes. Unsupported/missing details display “Unavailable” rather than a guessed address. Wi-Fi is queried read-only; it is never enabled or reconfigured by the plugin.
-5. Dismiss the information popup and close the menu so the book itself is visible before sending commands. Both devices must be on the same trusted Wi-Fi. Enable Wi-Fi yourself if necessary.
+4. Starting the listener creates a new session token and checks private Tailscale Serve with a bounded background command. It uses private Serve only when the active mapping proxies to this plugin's port; otherwise it falls back to the current local Wi-Fi IPv4 address.
+5. A pairing QR appears with **Private Tailscale** or **Local Wi-Fi** and the selected endpoint printed below it. In the Page Turner PWA, choose **Scan Kindle pairing QR** and grant camera permission. Scanning configures the endpoint/token but sends no page-turn request.
+6. Tap the Kindle QR to dismiss it, close the KOReader menu so the book is visible, and then send one coordinated command. Use **Show pairing QR** to reopen it and **Connection details (route / IP / port)** for token-free diagnostics. Unsupported/missing details display “Unavailable”; the plugin never enables or reconfigures Wi-Fi.
 
 ## Update an installed copy
 
-Stop Page Turner and exit KOReader before copying updated files. For the menu/network-info update, copy these two files into the existing Kindle `koreader/plugins/pageturner.koplugin/` folder:
+Stop Page Turner and exit KOReader before copying the complete updated `pageturner.koplugin` folder. Keep the existing `config.lua`; any legacy `token` field is ignored and may remain. Ensure these new pairing files are present:
 
-- `pageturner.koplugin/main.lua`
-- `pageturner.koplugin/pageturner_network.lua` (new)
+- `pageturner_pairing.lua`
+- `pageturner_endpoint.lua`
+- `pageturner_pairing_message.lua`
 
-Keep the existing `config.lua` and laptop `.pageturner-token`; **do not regenerate the token**. Safely eject, restart KOReader, and open a book. Confirm the new menu position, Wi-Fi/IP/port display, and that next/back still work after closing the popup and menus.
+Safely eject, restart KOReader, open a book, and confirm that Start displays a scannable QR and the correct private/local route. Do not replace the separate Tailscale extension's registered `state/` directory.
 
 ## Send commands
 
-Replace `192.168.1.42` with your Kindle's address:
+The normal client is the PWA. Its scanner reads this versioned QR payload entirely on-device:
 
-```sh
-python3 tools/pageturner.py next --host 192.168.1.42 --log timing.jsonl
-python3 tools/pageturner.py back --host 192.168.1.42 --log timing.jsonl
+```json
+{"version":1,"endpoint":"https://kindle.example.ts.net","token":"<session-token>"}
 ```
 
-The client reads `.pageturner-token` automatically. If you changed the port, add `--port 8089`. Each command prints a JSON record including HTTP status, acceptance message, and `round_trip_ms`. `--log` additionally appends the same record to a file. Tokens are not logged.
+The token is not shown below the QR, persisted by the PWA, put in the endpoint URL, or logged. The PWA sends one bodyless authenticated POST only after the user taps Next or Back.
 
-Direct HTTP requests also work:
-
-```sh
-# Load the header via stdin so the token is not passed in curl's argument list.
-printf 'Authorization: Bearer %s\n' "$(< .pageturner-token)" |
-  curl --max-time 3 --header @- --request POST --data '' \
-    --write-out '\nround_trip_seconds=%{time_total}\n' \
-    http://192.168.1.42:8088/next
-```
-
-Use `/back` for the opposite direction. The shell example above is for bash/zsh.
+`tools/pageturner.py` remains a low-level diagnostic client, but its old `.pageturner-token` no longer automatically matches because every manual Start rotates the Kindle session token. If a current token is deliberately supplied in a private token file, the existing `--token-file` option can be used. Never place the token directly in shell arguments, URLs, screenshots, or logs.
 
 ### HTTP contract
 
@@ -75,14 +66,15 @@ Use `/back` for the opposite direction. The shell example above is for bash/zsh.
 
 ## Lifecycle and safety
 
-- Choose **Stop Page Turner** to stop listening. Closing the book or exiting KOReader stops it; start it again after reopening/changing books or restarting KOReader.
-- Normal suspend/standby stops the listener. Normal resume restores it only if you had enabled it for that book. There is no remote wake, Wi-Fi activation, wake lock, sleep-setting write, or synthetic `InputEvent` to keep it awake. It may become unreachable when the Kindle normally sleeps or disables Wi-Fi.
+- Choose **Stop Page Turner** to stop listening and invalidate the session token. Closing the book or exiting KOReader does the same; a new manual Start generates a new token.
+- Normal suspend/standby temporarily stops the listener. Normal resume restores it only if enabled for that book and retains the same session token, so an interrupted reading session does not require rescanning. There is no remote wake, Wi-Fi activation, wake lock, sleep-setting write, or synthetic `InputEvent` to keep it awake. It may become unreachable when the Kindle normally sleeps or disables Wi-Fi.
 - The reader's existing `GotoViewRel(+1/-1)` handles navigation, including its current reading mode. Scroll mode uses its normal view-relative movement, not a forced switch to paged mode.
 - Menus/dialogs are never dismissed remotely. Close them locally before sending commands.
 - While enabled, the listener polls through KOReader's existing UI-manager mechanism. This and active Wi-Fi may increase power usage; no battery claim has been validated.
 - On Kindle, startup adds a private `KR_PAGETURNER` iptables chain and narrowly scoped TCP rules for the configured port. Stop/suspend/exit removes its own rules only. No global firewall policy is changed. If setup fails, startup rolls back.
 - A force-kill/crash can leave firewall rules behind. Restarting the Kindle should clear nonpersistent rules; if it does not, inspect `iptables -S` via your existing shell access. Do not flush the device firewall. The plugin refuses to take over an existing chain it did not create.
-- **Trusted local Wi-Fi only.** The bearer token prevents unauthenticated commands but plain HTTP does not encrypt traffic or the token. Do not port-forward this server, expose it publicly, or use it on hostile/shared networks. Configuration files on the Kindle's USB storage may not support private file permissions.
+- A local-IP pairing is for **trusted local Wi-Fi only**: plain HTTP does not encrypt the token. Private Tailscale Serve encrypts the phone-to-Kindle path and remains tailnet-only. Never enable Funnel or port-forward the listener.
+- Anyone who can photograph/scan the displayed QR can control the active listener until its token is invalidated. Dismiss the QR after pairing; tokens remain in memory and are omitted from logs and visible endpoint text.
 
 To uninstall, stop the listener, exit KOReader, then remove `pageturner.koplugin`. No reader settings need restoring.
 
@@ -99,28 +91,23 @@ The <100 ms delivery target is an aspiration, not a v1 blocker. Client timing in
 ## Troubleshooting
 
 - **Timeout/refused connection:** verify the IP/port, Wi-Fi, awake state, server menu status, and router client isolation. Check `crash.log` for bind/firewall errors. The plugin cannot prevent normal sleep or bypass Wi-Fi isolation.
-- **401:** the local `.pageturner-token` must match `config.lua` on the Kindle. Copying only `main.lua` is insufficient.
+- **401:** scan the QR generated by the current manual Start. A QR/token from an earlier stopped or closed session is intentionally invalid.
 - **409:** close menus/dialogs and wait for the previous command to finish.
 - **Port already in use:** change only this plugin's `config.lua` port and pass the same port to the client; stop/start the plugin afterward.
 - **Accepted but no turn:** inspect the screen, book boundaries, reading mode, and `PageTurner` logs. A document switch or dialog appearing before dispatch cancels the queued command intentionally.
 
 ## Test browser connectivity and scoped CORS
 
-This update adds token-safe `PageTurner: transport` lines and narrowly scoped
-CORS for the GitHub Pages PWA. It accepts browser preflight only for the exact
-origin `https://iamads.github.io`, routes `/next` and `/back`, method POST, and
-header Authorization. Actual page-turn POSTs still require the bearer token and
-all existing reader guards. The PWA itself requires no functional change.
+Page Turner has token-safe transport logs and narrowly scoped CORS for the GitHub Pages PWA. It accepts browser preflight only for the exact origin `https://iamads.github.io`, routes `/next` and `/back`, method POST, and header Authorization. Actual page-turn POSTs still require the current session token and all reader guards. Scanning a QR configures the PWA only; it does not trigger preflight or a command.
 
-1. Stop Page Turner and exit KOReader. Copy these three updated files into the
-   existing `koreader/plugins/pageturner.koplugin/` folder:
-   - `pageturner.koplugin/main.lua`
-   - `pageturner.koplugin/pageturner_http.lua`
-   - `pageturner.koplugin/pageturner_server.lua`
-2. Keep the existing `config.lua` and token unchanged. Restart KOReader, open a
-   book, start Page Turner, then close the popup and menus.
+1. Stop Page Turner and exit KOReader. Copy the complete updated
+   `pageturner.koplugin/` folder into the existing KOReader plugins directory,
+   preserving the installed `config.lua`. This includes the HTTP/CORS and new
+   pairing modules.
+2. Keep the existing `config.lua`. Restart KOReader, open a book, start Page
+   Turner, scan the new pairing QR, then close the QR and menus.
 3. In Chrome, open DevTools **Console** and **Network** (all requests, including
-   OPTIONS). Open the Pages PWA, enter the current Kindle IP/port/token, and tap
+   OPTIONS). Open the Pages PWA, scan the QR (or use manual fallback), and tap
    Next **once**. Observe the Kindle before any further command.
 4. Inspect the corresponding `PageTurner:` lines in `koreader/crash.log` using
    existing shell/file access. Do not attach the entire log or an unredacted HAR;
@@ -191,6 +178,7 @@ that obstacle. Actual iPhone behavior remains untested. See
 luajit tests/test_plugin.lua
 luajit tests/test_network.lua
 python3 -m unittest discover -s tests -p 'test_*.py' -v
+node --test tests/test_pwa_endpoint.mjs
 ```
 
 Lua tests use KOReader/socket doubles. Python tests exercise the laptop client with a real local HTTP fixture. Optional real LuaSocket transport tests (LuaSocket must be available to LuaJIT):
@@ -199,4 +187,4 @@ Lua tests use KOReader/socket doubles. Python tests exercise the laptop client w
 PAGETURNER_SOCKET_TESTS=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-These do **not** validate Kindle firewall behavior, KOReader rendering, or device power behavior. Source research and design limits: [`docs/koreader-research.md`](docs/koreader-research.md). Product sequencing: [`roadmap.md`](roadmap.md).
+These do **not** validate Kindle firewall behavior, QR rendering/readability, phone camera permission/decoding, actual browser transport, or device power behavior. Source research and design limits: [`docs/koreader-research.md`](docs/koreader-research.md). Product sequencing: [`roadmap.md`](roadmap.md).

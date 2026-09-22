@@ -5,11 +5,18 @@ This is the phase-2 phone experiment described in [`../docs/mobile-pwa-handoff.m
 ## What it tests
 
 - Whether the installed app is a secure context and exposes Screen Wake Lock.
+- Whether the PWA can camera-scan and strictly validate the Kindle's versioned endpoint/token payload without sending a command.
 - Whether the same app can send one authenticated `POST /next` or `POST /back` through either a direct Kindle IP or a private Tailscale hostname.
 - Wake-lock acquisition, browser release, visibility return, and explicit session end.
 - Browser errors and deployment facts without recording the bearer token.
 
-The token is held only in page memory. Reloading or terminating the app requires re-entry. Commands are never retried, queued, or intercepted by the service worker. A timeout is reported as uncertain because the Kindle may already have accepted the turn.
+The token is held only in page memory. Reloading or terminating the app requires another scan or manual entry. Commands are never retried, queued, or intercepted by the service worker. A timeout is reported as uncertain because the Kindle may already have accepted the turn.
+
+## QR pairing
+
+Choose **Scan Kindle pairing QR**, grant camera permission, and point the rear camera at the QR shown after **Start Page Turner**. A valid payload has exactly the supported version plus an endpoint and session token. The PWA validates both using the same endpoint/token rules as manual entry, configures the controls, stops all camera tracks, and sends no network request until Next or Back is tapped.
+
+Camera access requires the secure deployed PWA and an explicit user action. Scanning stops on success, cancellation, page backgrounding, or unload. Manual entry remains available if permission is denied or scanning fails. The QR decoder is vendored under `mobile-pwa/vendor/` and served locally with the PWA; no camera frame or payload is sent to a third party.
 
 ## Endpoint formats
 
@@ -38,7 +45,7 @@ python3 -m http.server 4173 --directory mobile-pwa
 
 Open `http://localhost:4173`. Localhost is treated specially as potentially trustworthy by desktop browsers, but this does **not** reproduce the iPhone-to-Kindle deployment and is not phase evidence. Stop this development server before any phone-only proof.
 
-Run endpoint validation tests with:
+Run endpoint and pairing-payload validation tests with:
 
 ```sh
 node --test tests/test_pwa_endpoint.mjs
@@ -69,17 +76,20 @@ After a reachable HTTPS deployment succeeds:
 
 1. In Safari on the actual phone, open the Pages URL and capture **Spike diagnostics**.
 2. Add the app to the Home Screen, launch it there, and confirm `Secure context: yes` and `Display mode: standalone`.
-4. Start the wake lock after a tap. Leave the app visible and idle longer than the phone's existing Auto-Lock interval; do not change that setting for the test.
-5. Enter the private Tailscale hostname (port 443 is optional) and token. With a book foregrounded and Page Turner listening, tap Next exactly once, then Back exactly once. Observe the Kindle; HTTP 202 alone is not enough.
-6. Capture the exact browser symptom separately for mixed-content, certificate/trust, local-network permission, and CORS/preflight failures. The copied diagnostics omit the token.
-7. Background/return and manual lock/unlock. Confirm the app either reacquires while the session is still wanted or truthfully reports failure. End session explicitly.
-8. Verify the Pages-hosted app uses no laptop command relay/runtime dependency before calling the combined spike successful.
+3. Open a book and manually start Page Turner. Confirm the Kindle QR says **Private Tailscale** and shows the expected `*.ts.net` endpoint below it.
+4. Tap **Scan Kindle pairing QR**, grant camera permission, and scan. Confirm the PWA reports that pairing was accepted and no page turns during scanning.
+5. Dismiss the QR and close Kindle menus. Start the wake lock, leave the app visible longer than the existing Auto-Lock interval, and do not change that setting.
+6. Tap Next exactly once, then Back exactly once. Observe the Kindle; HTTP 202 alone is not enough.
+7. Stop and manually restart Page Turner, rescan, and verify the old token no longer authorizes a command. Test malformed/foreign QR and camera denial with manual entry still available.
+8. Capture browser symptoms separately for camera, certificate/trust, local-network permission, and CORS/preflight failures. Copied diagnostics omit the token.
+9. Background/return and manual lock/unlock. Confirm the app either reacquires the wake lock or truthfully reports failure, and that any active camera stream stops. End the session explicitly.
+10. Verify the Pages-hosted app uses no laptop command relay/runtime dependency before calling the combined spike successful.
 
 Do not repeatedly tap after an uncertain result. Never paste the token into screenshots, issue reports, URLs, or browser-console logs.
 
 ## Non-blocking Android procedure
 
-On an available Android device, record the model, Android version, Chrome version and whether the app is running in-browser or installed. With both devices on the same Wi-Fi, try the direct Kindle endpoint first (`192.168.x.x` defaults to HTTP/8088). Record local-network permission, preflight, browser error, plugin transport evidence, one coordinated Next/Back result and foreground wake-lock behavior. Only test the Tailscale endpoint as a fallback or comparison. Android results inform transport selection but do not block the current owner/iPhone phase gate.
+On an available Android device, record the model, Android version, Chrome version and whether the app is running in-browser or installed. Record QR camera permission and scan behavior. With both devices on the same Wi-Fi, try the direct Kindle endpoint first (`192.168.x.x` defaults to HTTP/8088). Record local-network permission, preflight, browser error, plugin transport evidence, one coordinated Next/Back result and foreground wake-lock behavior. Only test the Tailscale endpoint as a fallback or comparison. Android results inform transport selection but do not block the current owner/iPhone phase gate.
 
 ## Success boundary
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseEndpoint } from "../mobile-pwa/endpoint.js";
+import { parsePairingPayload } from "../mobile-pwa/pairing.js";
 
 const tailnetHost = "pageturner-kindle.example-tailnet.ts.net";
 
@@ -40,6 +41,40 @@ test("normalizes hostname case", () => {
     parseEndpoint("HTTPS://PAGETURNER-KINDLE.EXAMPLE-TAILNET.TS.NET").baseUrl,
     `https://${tailnetHost}`,
   );
+});
+
+test("pairing payload configures direct or Tailscale connection without a request", () => {
+  const token = "a".repeat(64);
+  assert.deepEqual(
+    parsePairingPayload(JSON.stringify({version: 1, endpoint: "192.168.1.42:8088", token})),
+    {
+      baseUrl: "http://192.168.1.42:8088",
+      protocol: "http",
+      host: "192.168.1.42",
+      port: 8088,
+      transport: "direct",
+      token,
+    },
+  );
+  assert.equal(
+    parsePairingPayload(JSON.stringify({version: 1, endpoint: tailnetHost, token})).baseUrl,
+    `https://${tailnetHost}`,
+  );
+});
+
+test("pairing payload rejects malformed, stale-version and unsafe data", () => {
+  const token = "a".repeat(64);
+  for (const payload of [
+    "not json",
+    JSON.stringify({version: 2, endpoint: tailnetHost, token}),
+    JSON.stringify({version: 1, endpoint: "https://evil.example", token}),
+    JSON.stringify({version: 1, endpoint: tailnetHost, token: "short"}),
+    JSON.stringify({version: 1, endpoint: tailnetHost}),
+    JSON.stringify({version: 1, endpoint: tailnetHost, token, extra: true}),
+    "x".repeat(4097),
+  ]) {
+    assert.throws(() => parsePairingPayload(payload), Error);
+  }
 });
 
 for (const [name, endpoint] of [

@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import secrets
 import sys
 import time
 
@@ -17,18 +16,13 @@ TOKEN_FILE = ROOT / ".pageturner-token"
 
 def configure(port):
     config = ROOT / "pageturner.koplugin" / "config.lua"
-    if config.exists() or TOKEN_FILE.exists():
-        raise ValueError("Configuration already exists; refusing to replace your token.")
-    token = secrets.token_hex(24)
-    # Never print the token or put it in command-line arguments.
-    for path, content in (
-        (TOKEN_FILE, token + "\n"),
-        (config, f'return {{ port = {port}, token = "{token}" }}\n'),
-    ):
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as file:
-            file.write(content)
-    print(f"Created {config} and {TOKEN_FILE}. Keep both private.")
+    if config.exists():
+        raise ValueError("Configuration already exists; refusing to replace it.")
+    fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as file:
+        file.write(f"return {{ port = {port} }}\n")
+    print(f"Created {config}.")
+    print("The Kindle generates a new in-memory bearer token on each manual start.")
     print("Copy pageturner.koplugin to your Kindle's koreader/plugins directory.")
 
 
@@ -75,7 +69,7 @@ def port_number(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    setup = commands.add_parser("configure", help="generate local config and random token once")
+    setup = commands.add_parser("configure", help="generate the plugin port configuration")
     setup.add_argument("--port", type=port_number, default=8088)
     for name in ("next", "back"):
         command = commands.add_parser(name)
