@@ -1,6 +1,15 @@
 pageturner.koplugin/config.lua
 .pageturner-token
+/auth.key
 __pycache__/
 *.pyc
 *.jsonl
 .DS_Store
+/kindle-kual/pageturner-tunnel/bin/tailscale
+/kindle-kual/pageturner-tunnel/bin/tailscaled
+/kindle-kual/pageturner-tunnel/private/*
+!/kindle-kual/pageturner-tunnel/private/.gitkeep
+/kindle-kual/pageturner-tunnel/state/*
+!/kindle-kual/pageturner-tunnel/state/.gitkeep
+/kindle-kual/pageturner-tunnel/logs/*
+!/kindle-kual/pageturner-tunnel/logs/.gitkeep

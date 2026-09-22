@@ -1,0 +1,90 @@
+{
+  "items": [
+    {
+      "name": "Page Turner Tunnel",
+      "priority": 0,
+      "items": [
+        {
+          "name": "Check compatibility",
+          "priority": 1,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/check-compatibility.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Test current Tailscale launch",
+          "priority": 2,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/test-tailscale-launch.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Test temporary Tailscale daemon",
+          "priority": 3,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/test-tailscaled-daemon.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Start private Tailscale",
+          "priority": 10,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/start-private-tailscale.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Register Kindle with auth key",
+          "priority": 11,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/register-private-tailscale.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Show private Tailscale status",
+          "priority": 12,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/status-private-tailscale.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Stop private Tailscale",
+          "priority": 13,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/stop-private-tailscale.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Configure private HTTPS Serve",
+          "priority": 20,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/configure-private-serve.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Show private Serve status",
+          "priority": 21,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/status-private-serve.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        },
+        {
+          "name": "Disable private Serve",
+          "priority": 22,
+          "action": "sh /mnt/us/extensions/pageturner-tunnel/scripts/disable-private-serve.sh",
+          "exitmenu": false,
+          "status": true,
+          "refresh": false
+        }
+      ]
+    }
+  ]
+}

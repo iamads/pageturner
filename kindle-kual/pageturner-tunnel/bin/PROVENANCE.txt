@@ -1,0 +1,8 @@
+Tailscale version: 1.102.4
+Architecture: arm
+Source: https://pkgs.tailscale.com/stable/tailscale_1.102.4_arm.tgz
+Archive SHA-256: b981a59cb85fb923ee6e1860ee6934772c83a840a6627f0dbfd7711ed690b869
+tailscale SHA-256: 0fb730c51955b471591d8740f594455e520db332e1cd4ae50e297d4e8b9cf954
+tailscaled SHA-256: 1a2dfa6b9a68111514d69518aa10f619beecb53246317830cdafb3ea63399edb
+Downloaded and verified: 2026-09-20
+Purpose: version-only compatibility launch test; do not start the daemon from this package.

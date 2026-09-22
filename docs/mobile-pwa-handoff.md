@@ -1,26 +1,111 @@
 # Mobile PWA control — handoff
 
-> Updated: 2026-09-19
+> Updated: 2026-09-22
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Correlated logs prove iPhone WebKit blocks Pages→HTTP Kindle before delivery; choose Kindle HTTPS certificate/addressing strategy next.
+> State: Private Tailscale Serve is selected. Current Tailscale 1.102.4 runs on the Paperwhite 3, its userspace daemon passed a bounded test, and the Kindle is registered in the owner's tailnet. The first Serve configuration action failed before its detailed cause was captured; the wrapper now starts/reuses Tailscale before configuring Serve and awaits device retest. No Funnel/public endpoint was enabled.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
+
+## Current checkpoint — resume here first
+
+The selected transport experiment is now **private Tailscale Serve**, not Funnel. The owner has installed and connected the official Tailscale app on the iPhone and does not use another phone VPN. The Kindle appears in the Tailscale admin console as `pageturner-kindle`; the one-off auth-key file was consumed and deleted. Persistent node state exists only on the installed Kindle under `/mnt/us/extensions/pageturner-tunnel/state/` and must not be overwritten with the repository's empty placeholder directory.
+
+Target device evidence:
+
+- Kindle Paperwhite 3, firmware 5.12.3, KOReader 2026.03 and KUAL.
+- Linux `3.0.35-lab126`, ARMv7/32-bit Freescale i.MX6 SoloLite.
+- About 503 MiB RAM, no swap, about 2.43 GiB free USB storage, no `/dev/net/tun`, KOReader CA bundle present.
+- Official Tailscale **1.102.4 ARM** executables both report their versions successfully despite the kernel being below current Go's supported Linux minimum.
+- A 15-second logged-out daemon test in `--tun=userspace-networking --state=mem:` remained healthy at about 13.6 MiB RSS and six threads; local API worked and cleanup succeeded. This is bounded evidence, not official platform support or a battery/session result.
+- Persistent registration eventually succeeded. The first registration attempt exposed a wrapper bug: old-Kindle process verification misclassified a live daemon and unlinked its socket. Corrected scripts use `/proc/<pid>/exe`; restarting the Kindle safely cleared orphan processes before the successful retry.
+
+Latest result: with the old scripts, **Start private Tailscale succeeded** and the admin console showed the Kindle connected; **Configure private HTTPS Serve then appeared stuck with no screen output**. Source inspection of Tailscale 1.102.4 confirms that first-time HTTPS setup can print an admin approval URL and deliberately block waiting for the tailnet capability. The old script redirected that URL to a log and gave no live screen feedback, so this is the leading explanation, not a proven crash. The owner has now enabled HTTPS in the Tailscale admin console. `configure-private-serve.sh` now starts/reuses Tailscale, shows reconnection progress, bounds reset/status calls to 15 seconds, displays an HTTPS approval URL and 120-second counter if still required, and reports explicit success/failure/timeout on the Kindle. `status-private-serve.sh` similarly shows a 15-second progress counter and final state. The owner intends to copy these revised files; neither revised script has yet been retested on the Kindle.
+
+Immediate continuation:
+
+1. The old Serve command may still be waiting. Restart the Kindle once to terminate that old foreground KUAL/CLI process safely; persistent registration state survives.
+2. Copy only revised `scripts/configure-private-serve.sh` and `scripts/status-private-serve.sh` to their matching installed paths; do not replace the entire extension or its `state/` directory.
+3. In KUAL run **Configure private HTTPS Serve**. It starts Tailscale itself and shows each wait stage. Running **Start private Tailscale** first remains valid. HTTPS has already been enabled in the admin console, so interactive approval should normally be skipped.
+4. If the Kindle nevertheless displays `HTTPS approval required`, open the shown URL while signed into Tailscale before the two-minute counter expires. The owner has accepted the HTTPS enablement flow, whose required acknowledgement publishes the machine FQDN (`pageturner-kindle.<tailnet>.ts.net`) in public Certificate Transparency logs; endpoint access remains private to the tailnet. Never enable Funnel.
+5. Run **Show private Serve status**. Both configure/status scripts display success and the endpoint on the Kindle using `eips`; logs remain fallback diagnostics.
+6. After Serve succeeds, open KOReader, open a book, start Page Turner on port 8088, keep iPhone Tailscale connected, and navigate directly to `https://<private-ts-host>/next`. Expected unauthenticated GET result is **401** and no page turn. This proves private HTTPS/backend reachability only.
+7. Update the PWA endpoint validator for a trusted HTTPS hostname and port 443 only after that direct control succeeds; current PWA still rejects hostnames and ports below 1024.
+
+Detailed implementation decisions and history: [`tailscale-private-serve-spec.md`](tailscale-private-serve-spec.md). Operator instructions: [`../kindle-kual/README.md`](../kindle-kual/README.md).
+
+## Strategies tried and results
+
+| Strategy | Result / decision |
+|---|---|
+| Laptop → Kindle plain HTTP | Owner reports MVP works; unauthenticated probe returned expected 401. Full 20-turn/regression gate remains unreported. |
+| GitHub Pages HTTPS PWA → Kindle HTTP from desktop Chrome | Works after exact-origin CORS/preflight support; desktop browser can control the Kindle. |
+| Direct iPhone navigation to Kindle HTTP | Reaches the listener and returns 401, proving phone LAN reachability. |
+| GitHub Pages HTTPS PWA → Kindle HTTP from iPhone WebKit | Fails in about 4 ms with no Kindle transport log; secure-page/private-HTTP browser policy is the likely blocker. Plain HTTP PWA path closed for the tested setup. |
+| Manual Kindle hostname/certificate/DNS | Rejected due changing Wi-Fi IP and setup/renewal complexity. |
+| iOS Shortcut or native iOS app | Rejected as the primary product path; PWA and foreground wake lock remain required. |
+| Tailscale Funnel | Researched and briefly chosen, then superseded. Its only major UX advantage here is no phone VPN; public exposure and hardening are unnecessary because the owner accepts the phone app. Never enabled. |
+| Private Tailscale Serve | Selected. iPhone app connected; Kindle compatibility, daemon, and node registration passed. HTTPS Serve configuration is the current incomplete step. |
+| Custom secure relay / WebRTC | Documented alternatives, not implemented. Preserve as fallbacks only if private Serve fails for a diagnosed reason. |
+| Voice-command processing | Research completed separately in `pwa-voice-command-research.md`; no microphone/voice implementation. Apple Voice Control is the least-work trial; sherpa-onnx phrase spotting is the preferred free embedded candidate. Voice remains after mobile transport/wake validation. |
+
+## KUAL extension created
+
+Repository package: `kindle-kual/pageturner-tunnel/`. Installed location: `/mnt/us/extensions/pageturner-tunnel/`.
+
+Do not copy the entire repository folder over a registered Kindle: repository `state/`, `private/`, and `logs/` contain placeholders, while the Kindle's `state/tailscaled.state` is its private node identity. Auth keys, state and logs are ignored by Git. A root-level `auth.key` is also ignored; any consumed local copy should be deleted rather than retained.
+
+KUAL actions and underlying behavior:
+
+| KUAL action | Key command / effect |
+|---|---|
+| Check compatibility | Read-only kernel/CPU/memory/storage/TUN/CA inventory; writes `/mnt/us/pageturner-compatibility.txt`. |
+| Test current Tailscale launch | `tailscale version` and `tailscaled --version`; no daemon/login. |
+| Test temporary Tailscale daemon | Starts `tailscaled --tun=userspace-networking --state=mem: --socket=/tmp/pageturner-tailscaled-smoke.sock --port=0`, checks local API/resources, then removes it. |
+| Start private Tailscale | Starts the isolated persistent daemon with `--tun=userspace-networking --state=<extension>/state/tailscaled.state --socket=/tmp/pageturner-tailscaled.sock --port=0`; does not enable SSH/routes/DNS proxying. |
+| Register Kindle with auth key | Runs `tailscale --socket=<socket> up --auth-key=file:<private/auth.key> --hostname=pageturner-kindle --accept-routes=false --accept-dns=false --ssh=false`; successful one-off key file is deleted. Do not run again after registration unless deliberately reauthenticating. |
+| Show private Tailscale status | Runs `tailscale --socket=<socket> status`, shows KUAL output and writes `logs/status.log`. |
+| Stop private Tailscale | Stops only the PID owned by this extension. Preserves node state and Serve configuration. |
+| Configure private HTTPS Serve | Starts/reuses Tailscale, waits for connection, runs `tailscale serve reset`, then `tailscale serve --bg --https=443 http://127.0.0.1:8088`. Never calls Funnel. |
+| Show private Serve status | Runs `tailscale serve status` with a visible 15-second wait counter, displays active/not configured/failed/timeout and URL/proxy on Kindle, writes timestamped `logs/serve-status.log`. |
+| Disable private Serve | Runs `tailscale serve reset`; does not stop or unregister Tailscale. |
+
+Normal operating order after registration:
+
+```text
+Start private Tailscale
+Configure private HTTPS Serve   # now auto-starts, so explicit Start is optional
+Show private Serve status
+open KOReader/book → Start Page Turner
+connect iPhone Tailscale → use/test private HTTPS endpoint
+```
+
+Shutdown/rollback order:
+
+```text
+Disable private Serve
+Stop private Tailscale
+```
+
+Removing the node entirely additionally requires deleting/revoking `pageturner-kindle` in the Tailscale admin console and removing the Kindle's persistent `state/`; that rollback has not been selected or tested yet.
 
 ## Resume here
 
-Do not interpret this document or the local harness as evidence that the browser architecture already works. Continue on `feat/mobile-pwa`, not `main`; do not merge or alter the working Kindle installation without the owner's direction.
+Do not interpret the local harness or successful Tailscale registration as evidence that the complete browser architecture works. Continue on `feat/mobile-pwa`, not `main`; do not merge or overwrite the Kindle's registered extension state. The owner has authorized the private Serve experiment and the device/account changes listed above, but not Funnel, unrelated network features, or page turns without coordination.
 
-A minimal framework-free harness now exists in `mobile-pwa/`, and the owner approved GitHub Pages as its static HTTPS host. The repository remote is `iamads/pageturner`, both branches are published, and a fresh workflow deployment after removal of the old account-level custom domain made `https://iamads.github.io/pageturner/` available with HTTP 200 for the page and shell assets. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on its `master` Pages source branch; remove it there before a future legacy build if detachment should persist. The current workstream is the **actual-iPhone transport diagnosis**, followed by the foreground-wake-lock experiment only after phone connectivity works.
+A minimal framework-free harness exists in `mobile-pwa/`, and GitHub Pages serves it at `https://iamads.github.io/pageturner/`. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on `master`; remove it there before a future legacy build if detachment should persist. Direct phone HTTP reaches the Kindle, but secure-PWA HTTP fetch did not reach the plugin. Private Serve was therefore selected to provide a stable browser-trusted HTTPS endpoint without manual Kindle certificates or public exposure. Serve itself and the combined PWA/wake-lock path remain unproven.
 
 ## Confirmed decisions
 
 - Target phone: **iOS 26.6**, exactly as reported by the owner. Verify the actual device/build during testing; do not silently rewrite it to another version.
 - Product: Mobile-friendly **PWA**, with user-entered Kindle **IP and port**, existing token authentication, and large **Next / Back** buttons.
-- Operation: **Phone + Kindle only**. A running laptop bridge/proxy is not an acceptable runtime dependency.
-- Wake behavior: **Prevent automatic screen lock while the PWA is visible**. There is no requirement to execute while backgrounded or manually locked.
+- Operation: **Phone + Kindle only**. A running laptop bridge/proxy is not an acceptable runtime dependency. Internet connectivity during reading is acceptable.
+- Wake behavior: **Prevent automatic screen lock while the PWA is visible**. Standard foreground wake lock is non-negotiable; there is no requirement to execute while backgrounded or manually locked.
 - Preserve normal Kindle/KOReader behavior, its sleep settings, Wi-Fi management, and local navigation. A phone screen wake lock does not authorize keeping the Kindle awake.
 - Retain shared-token access control. Do not remove it to simplify browser access.
-- Sequence: Prove direct browser connectivity and screen wake lock first; build the small usable PWA second; validate two 30-minute mobile reading sessions; voice comes later.
+- Sequence: Prove browser connectivity and screen wake lock first; build the small usable PWA second; validate two 30-minute mobile reading sessions; voice comes later.
+- Rejected as primary solutions: iOS Shortcut, native iOS app, and manual hostname/certificate/DNS setup. A Kindle-hosted plain-HTTP page is a last resort because it cannot provide standard wake lock.
+- **Private Tailscale Serve is selected for the spike.** The owner accepts enabling Tailscale on the iPhone and has no other phone VPN. Funnel/public exposure is explicitly out of current scope.
+- The owner approved Kindle compatibility checks, official ARM binaries, isolated KUAL packaging, tailnet registration, and private Serve configuration. Ask before unrelated device/account changes, Funnel, policy broadening, or destructive rollback.
 - Work in the separate branch named above.
 
 ## Existing baseline
@@ -30,7 +115,7 @@ The owner reports that the initial MVP works on their Kindle, running **KOReader
 Do not overstate acceptance evidence:
 
 - After the scoped CORS update was installed, the owner reports the Pages PWA works from desktop Chrome, including actual Kindle control. CORS and authenticated direct HTTP are therefore validated in that desktop environment.
-- The owner reports failure from iPhone Safari and Firefox Focus. Focus diagnostics show `https://iamads.github.io` is secure, Wake Lock/service worker APIs exist, browser display mode is active, and the HTTP Kindle fetch fails in 4 ms with `TypeError: Load failed`. Direct HTTP navigation returned/logged 401 at 21:54, but the PWA tap at 21:56 produced no transport log before listener stop at 21:57. This proves LAN/listener reachability and WebKit blocking before plugin delivery. All iOS browsers use WebKit; testing another branded browser is not an independent engine test. No installed/Home Screen run or active wake-lock test has passed.
+- The owner reports failure from iPhone Safari and Firefox Focus. Focus diagnostics show `https://iamads.github.io` is secure, Wake Lock/service worker APIs exist, browser display mode is active, and the HTTP Kindle fetch fails in 4 ms with `TypeError: Load failed`. Direct HTTP navigation returned/logged 401 at 21:54, but the PWA tap at 21:56 produced no transport log before listener stop at 21:57. This establishes LAN/listener reachability and no observed delivery for that PWA attempt; it strongly suggests browser/OS blocking but is not the exact WebKit policy error. The tested Safari/Focus path is WebKit-based; another iOS browser brand should not automatically be treated as an independent engine test. No installed/Home Screen run or active wake-lock test has passed.
 - The exact initial 20 alternating visible-turn test and normal-reading regressions have not been reported in detail.
 - The two 30-minute sessions have not been reported as completed.
 - Latest menu/network-info changes still lack explicit on-device confirmation in the conversation.
@@ -50,50 +135,60 @@ Do not overstate acceptance evidence:
 | `tests/` | Lua plugin/network doubles, Python client tests, optional real LuaSocket transport tests |
 | `README.md` | Install/update instructions and protocol/lifecycle limits |
 | `mobile-pwa/` | Diagnostic installable shell: in-memory endpoint/token setup, one-shot controls, wake-lock lifecycle, redacted diagnostics; no device proof |
-| `docs/mobile-pwa-hosting-strategies.md` | Living comparison of GitHub-hosted cross-origin and Kindle-hosted same-origin PWA strategies; neither selected |
+| `docs/mobile-pwa-hosting-strategies.md` | Consolidated S01–S25 catalogue of every brainstormed strategy, pros/cons, requirements fit, evidence, and decision status |
+| `docs/tailscale-research.md` | Original Serve/Funnel comparison, official constraints, community precedent and compatibility/security risks |
+| `docs/tailscale-private-serve-spec.md` | Current selected transport decisions, device evidence, registration history, acceptance criteria and unresolved rollback choice |
+| `kindle-kual/pageturner-tunnel/` | Isolated KUAL extension: diagnostics, current ARM binaries (locally ignored), persistent daemon registration, private Serve controls and Kindle-screen status |
+| `kindle-kual/README.md` | Exact copy paths, account-key registration procedure, KUAL commands, logs and private Serve operation |
+| `docs/pwa-voice-command-research.md` | Free/on-device voice options and recommendation; research only, deferred until transport/wake proof |
 | `docs/koreader-research.md` | KOReader v2026.03 API evidence and prior test coverage |
 
 ### API/lifecycle contract to preserve
 
 - Default endpoint: `http://<current-kindle-ip>:8088`; do not hard-code an IP learned in an earlier session.
 - Bodyless `POST /next` and `POST /back`; `Authorization: Bearer <token>`.
+- Browser preflight is restricted to exact origin `https://iamads.github.io`, `/next` or `/back`, POST, and Authorization. Valid OPTIONS returns 204 and never turns a page; actual POST still requires the token. Any future PWA origin change must update this allowlist deliberately.
 - HTTP **202 means accepted**, not proof the displayed page moved. Dispatch occurs on a later UI tick and can be cancelled if the reader is no longer foregrounded.
 - Missing/incorrect token: 401. Covered book or pending turn: 409. GET/unknown paths/bodies are not a supported connection-check API.
 - Do not use page-turn requests as an automatic connectivity probe. A new non-mutating health/pairing endpoint would be a deliberate, documented/tested API change.
 - Never automatically retry or replay an uncertain command after a timeout/reconnect. The first attempt may already have turned the page. Do not put navigation commands in a service-worker offline queue.
 - Listener is opt-in per book, stops on normal sleep/close/exit, and may resume only through KOReader's existing lifecycle. It does not enable Wi-Fi or reset idle timers.
 
-## Primary risk: a static HTTPS PWA cannot simply be pointed at the current HTTP API
+## Primary risk: retain a secure PWA without changing-IP certificate management
 
-A mobile button UI is easy compared with the browser security/deployment constraints:
+The observed plain-HTTP results and constraints are:
 
-1. Screen Wake Lock and service-worker capabilities require a **secure context**, normally trusted HTTPS on a phone accessing another device. An ordinary `http://192.168.x.x` Kindle origin is not the phone's localhost exception.
-2. HTTPS-page fetches to plain HTTP normally hit **mixed-content restrictions**. Adding CORS headers does not by itself solve this. Verify the exact Safari/iOS local-network behavior rather than assume a version-specific exception works.
-3. Cross-origin `Authorization` headers trigger an **OPTIONS preflight**. Chrome confirmed this was rejected by the previous plugin. The current branch now answers only the exact Pages-origin `/next` and `/back` POST/Authorization preflight, while actual POSTs retain token authentication. This is locally tested but not device evidence.
-4. Adding an HTTP page to the Home Screen is not evidence that secure-context wake lock or offline caching works.
-5. A self-signed certificate or clicking past a browser warning is not automatically a valid solution. Verify actual browser trust, hostname/IP certificate matching, secure-context status, and installed-PWA behavior together.
+1. Desktop Chrome works after scoped CORS, because Chromium supports its local-network HTTP permission path.
+2. On iPhone WebKit, direct HTTP navigation reaches the listener and returns/logs 401, while the Pages PWA fetch produces no plugin connection. CORS, token entry, Wi-Fi isolation, and listener reachability are therefore not the remaining blocker.
+3. Standard Screen Wake Lock still requires the PWA's secure context and is non-negotiable. A Kindle-hosted HTTP page is not equivalent.
+4. An IP-address certificate is rejected because the Kindle address changes. Manual hostname/DNS/certificate management is also rejected.
+5. A fetch-based candidate needs a trusted HTTPS endpoint independent of Wi-Fi IP changes. A different browser-supported secure transport, such as a WebRTC data channel or connection through a relay, is also possible in principle. Preserve authentication, foreground wake lock, no replay, and no running laptop.
 
-### Candidate approaches and decisions still open
+Tailscale Serve/Funnel can potentially supply that stable `*.ts.net` HTTPS endpoint while proxying to the existing local HTTP plugin. This avoids implementing TLS in Lua but introduces a persistent Kindle daemon, external account/control-plane dependency, credentials, resource use, and new lifecycle/security work.
 
-The two currently considered hosting strategies, including HTTP/HTTPS distinctions and operational trade-offs, are documented in [`mobile-pwa-hosting-strategies.md`](mobile-pwa-hosting-strategies.md). Keep that document open for additional strategies; no architecture is selected yet.
+### Selected approach and remaining work
 
-- **Investigate first:** Copy the current plugin update and retest one command. Expected sequence: OPTIONS 204, then token-authenticated POST 202/401/409, with matching transport logs. If the browser still blocks before POST, capture the new Console/Network and private-network permission evidence before investing in TLS.
-- A different direct phone-to-Kindle browser design is acceptable only if demonstrated on the target phone and consistent with authentication, PWA, and foreground wake-lock requirements.
-- **Not selected:** HTTPS implementation, frontend stack, certificate issuance/trust provisioning, hostname/IP strategy, certificate renewal, DHCP-change handling, asset hosting, and service-worker cache/update policy.
-- **Confirmed for the spike:** GitHub Pages may provide the external static HTTPS origin for initial loading/install. It serves only public shell assets and is not a command relay. The workflow publishes `mobile-pwa/` only and contains no token.
-- **Still requires clarification before production commitment:** Whether use after installation must work with no internet and how much one-time Kindle certificate/profile/DNS setup the owner accepts.
-- Token entry/pairing and persistence remain open. A browser cannot automatically read the laptop's `.pageturner-token`. Preserve authentication without embedding a shared secret in bundled frontend code.
-- If certificate/IP constraints prevent the promised IP+port UX, explain the trade-off and obtain a decision instead of silently replacing it with hostname-only setup.
-- A laptop bridge, cloud command relay, native app, or HTTP-only page without standard wake lock is **not an approved fallback**. If the direct PWA path fails, stop and bring the blocker back to the owner.
+The broad comparison remains in [`mobile-pwa-hosting-strategies.md`](mobile-pwa-hosting-strategies.md); historical Tailscale research is in [`tailscale-research.md`](tailscale-research.md). The current decision record is [`tailscale-private-serve-spec.md`](tailscale-private-serve-spec.md).
 
-## Spike procedure (harness implemented; actual-device steps pending)
+- **Selected:** private Tailscale Serve HTTPS. Both devices join the tailnet; the bearer token and scoped CORS remain required application controls.
+- **Superseded:** Funnel. It was never enabled and must remain off.
+- **Validated:** current ARM binaries launch; userspace daemon can run within a bounded test; persistent one-off-key registration succeeds; iPhone Tailscale is connected.
+- **Not yet validated:** Serve configuration, managed certificate issuance, private iPhone HTTPS reachability, proxy request compatibility, PWA hostname/443 support, foreground wake lock with commands, sleep/reconnect behavior, battery impact and long reading sessions.
+- **Implementation constraint:** no TUN exists, so Kindle Tailscale must use `--tun=userspace-networking`. Serve is expected to terminate HTTPS inside `tailscaled` and proxy to loopback, but that path still needs device evidence.
+- **PWA change required after direct Serve proof:** replace IPv4-only/port-1024 validation with a validated private HTTPS hostname/443 model. Do not include tokens in URLs or storage and do not replay uncertain commands.
+- **Plugin behavior to preserve:** authenticated bodyless next/back, exact Pages-origin CORS, strict 4 KiB parsing, foreground-reader guard and no retry. Do not loosen parsing preemptively; observe actual Serve requests first.
+- **Fallbacks only after diagnosis:** custom relay or WebRTC. Raw browser sockets, plain HTTP, Shortcut/native/manual-certificate paths remain unsuitable or rejected under current scope.
 
-1. **Inspect target environment.** Record exact iPhone model/OS/build, Safari and Home Screen modes, Kindle model/firmware, KOReader version, normal phone Auto-Lock timeout, and current network. Do not change the timeout or Kindle sleep settings to make a test appear successful.
-2. **Establish a minimal browser harness.** Log frontend origin, endpoint, `window.isSecureContext`, wake-lock availability/state, visibility changes, request status, and redacted browser errors. No production UI or framework investment yet.
-3. **Test the browser-to-device path.** Diagnose mixed content, trust/certificate errors, local-network permissions, and preflight separately. Use scoped, reversible plugin changes on this branch where required. Confirm the laptop is not part of the command path; turn off development hosting for the final phone-only proof.
-4. **Prove the combined deployment.** In the actual installed Home Screen PWA, authenticate and intentionally turn one page next and one page back, observing both on the Kindle. Demonstrate this from the same secure-context app that acquires the wake lock, not separate HTTP-control and HTTPS-wake demos.
-5. **Test wake-lock lifecycle.** Start the visible reading session after a user action. Observe an idle interval longer than the phone's existing Auto-Lock timeout. Record elapsed time and actual screen behavior. Background and return, manually lock/unlock, and exercise rejection/release where possible. Reacquire only when visible and the user still wants the session active; otherwise show a truthful unavailable/released state. Include an explicit end-session/disable control.
-6. **Review before frontend implementation.** Present direct-connectivity evidence, wake-lock evidence, and required hosting/trust/setup steps. Obtain owner acceptance of architecture/setup trade-offs. If blocked, document why and pause rather than quietly using a bridge or browser-security bypass.
+## Active private-Serve spike procedure
+
+1. Copy/retest the auto-starting Serve configure script and complete HTTPS approval if Tailscale requests it.
+2. Show Serve status and capture the private `https://pageturner-kindle.<tailnet>.ts.net` endpoint without sharing unnecessary tailnet identifiers.
+3. Return to KOReader, open a book, start Page Turner on port 8088 and close dialogs/menus.
+4. With iPhone Tailscale connected, navigate to `<Serve URL>/next`; expect 401 for unauthenticated GET and no turn. Confirm matching safe plugin transport logs if needed.
+5. Update/deploy PWA hostname and port-443 support. Do not change token, CORS, timeout uncertainty or service-worker no-replay behavior.
+6. In the actual installed Home Screen PWA, send one Next and one Back, verifying exactly one visible turn each. Test missing/wrong token and Tailscale-disconnected behavior.
+7. Test foreground wake lock past the existing Auto-Lock interval, visibility transitions, manual lock/unlock and truthful recovery without replay.
+8. Measure daemon resources during KOReader/Serve operation, then test stop/start, normal sleep/resume and two 30-minute reading sessions before any phase-pass claim.
 
 The OS may deny or revoke a wake lock (visibility, power policy, battery, etc.). Do not promise the browser is immortal, use artificial audio/video to keep it running, or try to defeat manual locking. Reopening the app should recover normally without replaying page commands.
 
@@ -112,7 +207,7 @@ These reference the canonical roadmap, not a second independent roadmap:
 
 ## Test baseline and commands
 
-Previous implementation session reported **39 passing local tests**: 21 Lua plugin, 9 Lua network, 6 Python client, 3 real LuaSocket transport integration tests. An additional source smoke check placed Page Turner first using the actual KOReader v2026.03 menu sorter/order. These are historical results, not rerun by this documentation-only handoff and not iPhone evidence.
+Current non-optional application validation reports **47 passing tests**: 32 Lua plugin, 9 Lua network, and 6 Python client tests. Three real LuaSocket transport tests previously passed but could not be rerun in the latest environment because local LuaSocket is unavailable. KUAL shell scripts pass local `sh -n`, menu JSON/path checks and `git diff --check`; these checks do not emulate old Kindle BusyBox. On-device evidence now covers binary launch, a 15-second userspace daemon run, cleanup and persistent registration—but not Serve, proxy integration, iPhone wake behavior, battery use or reading-session reliability.
 
 From the repository root:
 
@@ -137,14 +232,18 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - Local ignored files: `pageturner.koplugin/config.lua` and `.pageturner-token`. They already exist on the current development machine; do not regenerate or print their token during handoff/testing.
 - They are **not tracked** and will not appear in a fresh clone. If absent on another machine, obtain pairing/configuration deliberately; do not assume an empty token is acceptable.
 - Do not commit configuration secrets, copy tokens into browser logs/URLs, bundle tokens in a public PWA, or ship the Kindle configuration as a static asset.
-- Do not deploy to the owner's Kindle, install trust profiles, publish hosting, expose ports publicly, or turn pages without the corresponding user direction. Local research can precede those actions.
+- Tailscale auth keys, daemon state, machine identity, certificate private keys, tailnet details and generated Serve configuration must remain untracked. `.gitignore` covers the extension's private/state/log files, downloaded binaries and a root `/auth.key`; do not rely on ignore rules as secret deletion.
+- A consumed root-level `auth.key` currently exists locally as an ignored file. Do not read, print or commit it; delete it when the owner no longer needs the local copy. The Kindle copy was consumed/deleted after registration.
+- The owner authorized the installed iPhone VPN, Kindle tailnet registration and private Serve experiment. Funnel/public exposure, SSH, exit nodes, accepted routes, global KOReader proxy changes, policy broadening and destructive node-state removal remain unauthorized.
 - Keep changes scoped and reversible on `feat/mobile-pwa`; preserve the working plugin on `main`. No commit or merge was requested for this documentation turn.
 
 ## Source references and confidence
 
 - [MDN Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API): Secure-context/visibility requirements and OS release/denial.
 - [WebKit: Safari 18.4](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/): Home Screen web-app wake-lock support on iOS/iPadOS 18.4. This is prior platform evidence, not a test of the owner's reported iOS 26.6.
-- [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions; re-check version-specific local-network behavior during the experiment.
-- Repository HTTP/server modules establish that the current implementation lacks TLS, CORS, OPTIONS, static hosting, and a health endpoint.
+- [MDN mixed content](https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content): HTTPS-to-HTTP browser restrictions.
+- [Tailscale Serve](https://tailscale.com/kb/1312/serve), [Funnel](https://tailscale.com/kb/1223/funnel), [HTTPS](https://tailscale.com/kb/1153/enabling-https), [static Linux binaries](https://tailscale.com/kb/1053/install-static), [userspace networking](https://tailscale.com/kb/1112/userspace-networking), and [iOS](https://tailscale.com/kb/1020/install-ios).
+- Community precedent: [KOReader Tailscale plugin](https://github.com/victoria-riley-barnett/koreader-tailscale) at inspected commit `5422ff9`, and [Kindle KUAL extension](https://github.com/mitanshu7/tailscale_kual) at `ccd35eb`. Community code and README claims are not target-device evidence.
+- Current Page Turner branch has scoped Pages-origin CORS and no TLS/static hosting/health endpoint.
 
-**Immediate next action after resuming:** Present and choose Kindle HTTPS certificate/addressing setup. Recommended smallest continuation: keep the working Pages PWA and scoped CORS, add an optional HTTPS Kindle endpoint, and test it before considering Kindle-hosted static assets. Candidate certificate paths are (a) private CA installed/trusted on the iPhone with stable IP/hostname, or (b) publicly trusted certificate for an owned hostname using DNS-01 and local/private resolution. Validate KOReader/LuaSec server support before promising either. Verify exact iOS version in Settings. Do not spend more time on branded iOS browsers, add CORS bypasses, or run wake-lock session gates until HTTPS command transport succeeds.
+**Immediate next action after resuming:** Copy the revised auto-starting `configure-private-serve.sh`, run **Configure private HTTPS Serve**, and use its Kindle-screen result. If approval is required, use only the URL in `logs/serve-configure.log`, then retry. Do not enable Funnel. After success, run **Show private Serve status**, return to KOReader, start Page Turner and perform the non-mutating unauthenticated HTTPS reachability check described above before changing the PWA.
