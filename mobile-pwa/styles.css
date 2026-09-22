@@ -21,13 +21,12 @@ code { color: #bfdbfe; }
 button { border: 0; padding: .75rem 1rem; font-weight: 750; touch-action: manipulation; }
 button:disabled { opacity: .4; }
 .secondary { color: #f8fafc; background: #334155; border: 1px solid #64748b; }
-.scan-button, form > .secondary, .scanner .secondary { width: 100%; }
-form > .secondary { margin-top: .75rem; }
-.separator { margin: 1rem 0; color: #94a3b8; text-align: center; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; }
-.scanner { margin: .75rem 0 1rem; padding: .75rem; border: 1px solid #475569; border-radius: .8rem; background: #020617; }
-.scanner[hidden] { display: none; }
-.scanner video { display: block; width: 100%; max-height: 22rem; border-radius: .55rem; background: #000; object-fit: cover; }
-.scanner .state { margin: .65rem 0; }
+[hidden] { display: none !important; }
+dialog { width: min(calc(100% - 2rem), 38rem); max-height: calc(100% - 2rem); padding: 1.25rem; border: 1px solid #64748b; border-radius: 1rem; background: #0f172a; color: #f8fafc; }
+dialog::backdrop { background: rgb(0 0 0 / .7); }
+:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+#connection-state[data-state="success"] { color: #86efac; }
+#connection-state[data-state="failed"] { color: #fca5a5; }
 .hint, .state { color: #94a3b8; font-size: .83rem; line-height: 1.4; }
 .state { min-height: 1.2rem; margin-bottom: 0; }
 .session-row, .controls { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }

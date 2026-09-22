@@ -28,8 +28,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Test endpoint parsing
-        run: node --test tests/test_pwa_endpoint.mjs
+      - name: Test endpoint, pairing link and app flows
+        run: node --test tests/test_pwa_*.mjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload PWA artifact

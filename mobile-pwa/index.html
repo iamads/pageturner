@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111827">
+  <meta name="referrer" content="no-referrer">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Page Turner spike</title>
@@ -15,32 +16,36 @@
     <header>
       <p class="eyebrow">Phone feasibility spike</p>
       <h1>Page Turner</h1>
-      <p class="warning">Experimental harness. A timeout is uncertain—check the Kindle and never tap again automatically.</p>
+      <p class="warning">Experimental harness. A page-turn timeout is uncertain—check the Kindle and never tap again automatically.</p>
     </header>
 
     <section class="card" aria-labelledby="connection-title">
       <h2 id="connection-title">Connection</h2>
-      <button id="scan-qr" class="secondary scan-button" type="button">Scan Kindle pairing QR</button>
-      <section id="scanner" class="scanner" aria-label="QR scanner" hidden>
-        <video id="scanner-video" muted playsinline></video>
-        <canvas id="scanner-canvas" hidden></canvas>
-        <p id="scanner-state" class="state" role="status">Camera inactive</p>
-        <button id="cancel-scan" class="secondary" type="button">Cancel scan</button>
-      </section>
-      <p class="separator" aria-hidden="true">or enter manually</p>
-      <form id="connection-form">
-        <label>Kindle endpoint
-          <input id="endpoint-input" name="endpoint" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="192.168.1.42 or https://kindle.tailnet.ts.net" required>
-        </label>
-        <p class="hint">Enter a direct Kindle IP or private Tailscale URL. Add a custom port after a colon. Defaults: IP → HTTP/8088; <code>*.ts.net</code> → HTTPS/443.</p>
-        <label>Bearer token
-          <input id="token" name="token" type="password" autocomplete="off" minlength="32" maxlength="128" required>
-        </label>
-        <p class="hint">The token stays in this page's memory. It is not stored, logged, or included in a URL.</p>
-        <button class="secondary" type="submit">Use this connection</button>
-      </form>
-      <p id="connection-state" class="state" role="status">Not configured</p>
+      <p class="hint">Scan the Kindle code with your phone's camera and open the link to connect automatically.</p>
+      <div class="session-row">
+        <button id="manual-connection" class="secondary" type="button">Enter connection manually</button>
+        <button id="retry-connection" class="secondary" type="button" hidden>Retry connection</button>
+      </div>
+      <p id="connection-state" class="state" role="status">Not connected. Scan the Kindle code or enter the connection manually.</p>
     </section>
+
+    <dialog id="connection-dialog" aria-labelledby="dialog-title" aria-describedby="connection-hint">
+      <h2 id="dialog-title">Manual connection</h2>
+      <form id="connection-form" method="dialog" novalidate>
+        <label>Kindle endpoint
+          <input id="endpoint-input" name="endpoint" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="192.168.1.42 or https://kindle.tailnet.ts.net" required autofocus>
+        </label>
+        <p id="connection-hint" class="hint">Enter a direct Kindle IP or private Tailscale URL. Add a custom port after a colon. Defaults: IP → HTTP/8088; <code>*.ts.net</code> → HTTPS/443.</p>
+        <label>Bearer token
+          <input id="token" name="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="32" maxlength="128" required>
+        </label>
+        <p class="hint">Credentials stay only in this page's memory. Reloading requires a new scan or manual entry.</p>
+        <div class="session-row">
+          <button class="secondary" type="submit">Connect</button>
+          <button id="cancel-connection" class="secondary" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <section class="card" aria-labelledby="session-title">
       <h2 id="session-title">Foreground session</h2>
@@ -65,7 +70,6 @@
         <div><dt>Display mode</dt><dd id="diag-display"></dd></div>
         <div><dt>Visibility</dt><dd id="diag-visibility"></dd></div>
         <div><dt>Wake Lock API</dt><dd id="diag-wake-api"></dd></div>
-        <div><dt>Camera API</dt><dd id="diag-camera-api"></dd></div>
         <div><dt>Service worker</dt><dd id="diag-worker"></dd></div>
         <div><dt>Endpoint</dt><dd id="diag-endpoint">Not configured</dd></div>
         <div><dt>Last event</dt><dd id="diag-event">App loaded</dd></div>
@@ -74,7 +78,6 @@
       <p class="hint">Diagnostics never include the token. Browser errors are reduced to an error type and message.</p>
     </details>
   </main>
-  <script src="vendor/jsQR.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

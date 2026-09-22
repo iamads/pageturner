@@ -40,11 +40,17 @@ test("pairing token uses 32 secure random bytes and produces JSON-safe hex", fun
     assert(generated:match("^[a-f0-9]+$"))
     eq(Pairing.generateToken(function() return "short" end), nil)
 end)
-test("pairing payload is versioned and rejects unsafe values", function()
+test("pairing payload is a camera-readable HTTPS link with fragment-only credentials", function()
+    local prefix = "https://iamads.github.io/pageturner/#version=1&endpoint="
     local payload = assert(Pairing.payload("https://kindle.example.ts.net", token))
-    eq(payload, '{"version":1,"endpoint":"https://kindle.example.ts.net","token":"' .. token .. '"}')
+    eq(payload, prefix .. 'https%3A%2F%2Fkindle.example.ts.net&token=' .. token)
+    eq(Pairing.payload("http://192.168.1.42:8088", token),
+        prefix .. 'http%3A%2F%2F192.168.1.42%3A8088&token=' .. token)
+    eq(payload:match("^(.-)#"), "https://iamads.github.io/pageturner/")
     eq(Pairing.payload("https://kindle.example.ts.net/next", token), nil)
     eq(Pairing.payload("https://kindle.example.ts.net", "short"), nil)
+    eq(Pairing.payload("https://kindle.example.ts.net#bad", token), nil)
+    eq(Pairing.payload("https://kindle.example.ts.net?bad", token), nil)
 end)
 test("endpoint resolver selects only Serve mapped to the current backend", function()
     local status = "https://kindle.example.ts.net (tailnet only)\n"
@@ -95,8 +101,8 @@ test("response framing has exact body length and connection close", function()
     assert(response:find("Connection: close\r\n", 1, true))
     eq(response:match("\r\n\r\n(.*)$"), "accepted\n")
 end)
-test("approved preflight grants only fixed page-turn CORS permissions", function()
-    for _, path in ipairs({"/next", "/back"}) do
+test("approved preflight grants only fixed command and connection CORS permissions", function()
+    for _, path in ipairs({"/next", "/back", "/connect"}) do
         local response = HTTP.preflight(preflight(path))
         assert(response:find("HTTP/1.1 204 No Content", 1, true))
         assert(response:find("Access-Control-Allow-Origin: https://iamads.github.io\r\n", 1, true))
@@ -444,6 +450,42 @@ test("browser POST responses include CORS while auth and reader guards remain ac
     manager:tick(); eq(#reader.events, 1)
     p:stop()
 end)
+test("connection check authenticates with menus open and never queues or changes a turn", function()
+    local p, reader = plugin(); assert(p:start())
+    manager.top = {} -- pairing QR or menu covers the reader
+    local result = p:onRequest(browserRequest("/connect"))
+    assert(result:find("204 No Content", 1, true))
+    assert(result:find("Access-Control-Allow-Origin: https://iamads.github.io", 1, true))
+    eq(result:match("\r\n\r\n(.*)$"), "")
+    eq(p.pending, nil); eq(p.sequence, 0)
+    manager:tick(); eq(#reader.events, 0)
+    manager.top = reader
+    p:onRequest(request()); local pending = p.pending
+    local sequence = p.sequence
+    assert(p:onRequest(request("/connect")):find("204 No Content", 1, true))
+    eq(p.pending, pending); eq(p.sequence, sequence)
+    manager:tick(); eq(#reader.events, 1)
+    p:stop()
+    assert(p:onRequest(request("/connect")):find("503", 1, true))
+end)
+test("connection check retains strict authentication, method, body and origin checks", function()
+    local p, reader = plugin(); assert(p:start())
+    for _, case in ipairs({
+        {browserRequest("/connect", "old-token"), 401},
+        {"POST /connect HTTP/1.1\r\n\r\n", 401},
+        {browserRequest("/connect", token, "https://evil.example"), 403},
+        {request("/connect", token, "GET"), 405},
+        {request("/connect", token, "POST", "Content-Length: 1\r\n"), 400},
+        {request("/connect", token, "POST", "authorization: Bearer " .. token .. "\r\n"), 400},
+        {request("/connect?token=" .. token), 404},
+    }) do
+        assert(p:onRequest(case[1]):find("HTTP/1.1 " .. case[2], 1, true))
+    end
+    assert(p:onRequest(preflight("/connect")):find("204 No Content", 1, true))
+    assert(not p:onRequest(preflight("/connect", nil, "GET")):find("204 No Content", 1, true))
+    eq(p.pending, nil); manager:tick(); eq(#reader.events, 0)
+    p:stop()
+end)
 test("unauthorized requests and covered/absent books never turn pages", function()
     local p, reader = plugin(); assert(p:start())
     assert(p:onRequest(request(nil, "wrong")):find("401", 1, true))
@@ -474,6 +516,8 @@ test("session token survives normal suspend but rotates after close", function()
     p:onCloseWidget(); eq(p.session_token, nil); p:onResume(); eq(p.server, nil)
     assert(p:start()); assert(p.session_token ~= first)
     assert(p:onRequest(request(nil, first)):find("401 Unauthorized", 1, true))
+    assert(p:onRequest(request("/connect", first)):find("401 Unauthorized", 1, true))
+    assert(p:onRequest(request("/connect", p.session_token)):find("204 No Content", 1, true))
     p:stop()
     Pairing.generateToken = function() return token end
 end)

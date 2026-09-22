@@ -1,7 +1,7 @@
 {
   "name": "Page Turner feasibility spike",
   "short_name": "Page Turner",
-  "description": "QR-paired phone-to-Kindle control and foreground wake-lock experiment.",
+  "description": "Camera-link paired phone-to-Kindle control and foreground wake-lock experiment.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseEndpoint } from "../mobile-pwa/endpoint.js";
-import { parsePairingPayload } from "../mobile-pwa/pairing.js";
+import { parseConnection, parsePairingFragment, consumePairingFragment } from "../mobile-pwa/pairing.js";
 
 const tailnetHost = "pageturner-kindle.example-tailnet.ts.net";
 
@@ -43,38 +43,50 @@ test("normalizes hostname case", () => {
   );
 });
 
-test("pairing payload configures direct or Tailscale connection without a request", () => {
-  const token = "a".repeat(64);
-  assert.deepEqual(
-    parsePairingPayload(JSON.stringify({version: 1, endpoint: "192.168.1.42:8088", token})),
-    {
-      baseUrl: "http://192.168.1.42:8088",
-      protocol: "http",
-      host: "192.168.1.42",
-      port: 8088,
-      transport: "direct",
-      token,
-    },
-  );
-  assert.equal(
-    parsePairingPayload(JSON.stringify({version: 1, endpoint: tailnetHost, token})).baseUrl,
-    `https://${tailnetHost}`,
-  );
+const token = "a".repeat(64);
+const fragment = (endpoint = tailnetHost) => `#version=1&endpoint=${encodeURIComponent(endpoint)}&token=${token}`;
+
+test("pairing fragment parses direct and Tailscale endpoints using manual validation", () => {
+  for (const endpoint of ["http://192.168.1.42:8088", `https://${tailnetHost}:8443`]) {
+    assert.deepEqual(parsePairingFragment(fragment(endpoint)), parseConnection(endpoint, token));
+  }
 });
 
-test("pairing payload rejects malformed, stale-version and unsafe data", () => {
-  const token = "a".repeat(64);
+test("pairing fragment rejects malformed, duplicate, unsupported and unsafe data", () => {
   for (const payload of [
-    "not json",
-    JSON.stringify({version: 2, endpoint: tailnetHost, token}),
-    JSON.stringify({version: 1, endpoint: "https://evil.example", token}),
-    JSON.stringify({version: 1, endpoint: tailnetHost, token: "short"}),
-    JSON.stringify({version: 1, endpoint: tailnetHost}),
-    JSON.stringify({version: 1, endpoint: tailnetHost, token, extra: true}),
-    "x".repeat(4097),
+    "not a fragment", "#", null, "#" + "x".repeat(4096),
+    JSON.stringify({version: 1, endpoint: tailnetHost, token}),
+    fragment().replace("version=1", "version=2"),
+    fragment("https://evil.example"),
+    fragment(`https://${tailnetHost}/next`),
+    fragment().replace(token, "short"),
+    fragment().replace(`&token=${token}`, ""),
+    fragment() + "&extra=true",
+    fragment() + "&version=1",
+    fragment() + `&token=${token}`,
+    fragment() + `&endpoint=${tailnetHost}`,
+    fragment() + `&%74oken=${token}`,
+    fragment().replace(token, "%ZZ"),
+    fragment().replace(token, "%E0%A4"),
   ]) {
-    assert.throws(() => parsePairingPayload(payload), Error);
+    assert.throws(() => parsePairingFragment(payload), (error) => {
+      assert(!error.message.includes(token));
+      return /Invalid pairing link/.test(error.message);
+    });
   }
+});
+
+test("consumes and clears even invalid fragments before parsing; plain visit is untouched", () => {
+  for (const hash of [fragment(), "#invalid"]) {
+    const location = {hash, pathname: "/pageturner/", search: ""};
+    const calls = [];
+    const history = {replaceState: (...args) => calls.push(args)};
+    try { consumePairingFragment(location, history); } catch { /* expected invalid */ }
+    assert.deepEqual(calls, [[null, "", "/pageturner/"]]);
+  }
+  assert.equal(consumePairingFragment({hash: ""}, {
+    replaceState() { assert.fail("plain visit should not rewrite history"); },
+  }), null);
 });
 
 for (const [name, endpoint] of [

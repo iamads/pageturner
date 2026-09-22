@@ -1,7 +1,7 @@
-const CACHE = "pageturner-spike-v3";
+const CACHE = "pageturner-spike-v4";
 const SHELL = [
   "./", "index.html", "styles.css", "app.js", "endpoint.js", "pairing.js",
-  "vendor/jsQR.js", "manifest.webmanifest",
+  "manifest.webmanifest",
 ];
 
 self.addEventListener("install", (event) => {

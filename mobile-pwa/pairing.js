@@ -2,29 +2,34 @@ import { parseEndpoint } from "./endpoint.js";
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
-export function parsePairingPayload(raw) {
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > 4096) {
-    throw new Error("This is not a valid Page Turner pairing code.");
+export function parseConnection(endpoint, token) {
+  if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) {
+    throw new Error("Enter the 32–128 character Page Turner token.");
   }
+  return {...parseEndpoint(endpoint), token};
+}
 
-  let value;
+// Only URL data is handled here, never camera frames or QR decoding.
+export function parsePairingFragment(raw) {
+  const invalid = () => new Error("Invalid pairing link. Scan the current Kindle code or enter the connection manually.");
+  if (typeof raw !== "string" || !raw.startsWith("#") || raw.length > 4096) throw invalid();
+  // URLSearchParams tolerates malformed percent escapes; reject them explicitly.
+  try { decodeURIComponent(raw.slice(1)); } catch { throw invalid(); }
+  const params = new URLSearchParams(raw.slice(1));
+  if ([...params.keys()].sort().join(",") !== "endpoint,token,version"
+      || params.get("version") !== "1") throw invalid();
   try {
-    value = JSON.parse(raw);
+    return parseConnection(params.get("endpoint"), params.get("token"));
   } catch {
-    throw new Error("This QR code does not contain valid Page Turner pairing data.");
+    throw invalid();
   }
+}
 
-  const keys = value && typeof value === "object" && !Array.isArray(value)
-    ? Object.keys(value).sort().join(",")
-    : "";
-  if (keys !== "endpoint,token,version" || value.version !== 1
-      || typeof value.endpoint !== "string" || typeof value.token !== "string") {
-    throw new Error("This QR code uses unsupported pairing data.");
-  }
-  if (!TOKEN_PATTERN.test(value.token)) {
-    throw new Error("This QR code contains an invalid pairing token.");
-  }
-
-  const endpoint = parseEndpoint(value.endpoint);
-  return {...endpoint, token: value.token};
+export function consumePairingFragment(location, history) {
+  const fragment = location.hash;
+  if (!fragment) return null;
+  // Clear even invalid data before validation/fetch/diagnostics. No credentials
+  // in history state, storage, requests to the frontend host, or error messages.
+  history.replaceState(null, "", location.pathname + location.search);
+  return parsePairingFragment(fragment);
 }

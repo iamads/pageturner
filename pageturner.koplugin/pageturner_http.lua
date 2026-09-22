@@ -65,7 +65,7 @@ local function parse(request)
 end
 
 local function allowedRoute(path)
-    return path == "/next" or path == "/back"
+    return path == "/next" or path == "/back" or path == "/connect"
 end
 
 local function allowedRequestedHeaders(value)
@@ -97,7 +97,7 @@ function HTTP.preflight(request)
     end
     local cors = {cors = true}
     if not allowedRoute(parsed.path) then
-        return HTTP.response(404, "Use /next or /back", cors)
+        return HTTP.response(404, "Use /next, /back or /connect", cors)
     end
     if headers["access-control-request-method"] ~= "POST" then
         return HTTP.response(405, "Only POST may be requested", cors)
@@ -152,7 +152,9 @@ function HTTP.requestSummary(request)
         .. " private_network=" .. label("access-control-request-private-network", "true", "true")
 end
 
--- Returns direction (+1/-1), or nil, status, safe error message, cors_allowed.
+-- Returns direction (+1/-1), or nil, status, safe message, cors_allowed.
+-- /connect returns nil, 204 before reader/queue guards: it authenticates only,
+-- never creates a navigation direction or touches pending page turns.
 function HTTP.command(request, token)
     local parsed, status, message = parse(request)
     if not parsed then return nil, status, message, false end
@@ -167,7 +169,8 @@ function HTTP.command(request, token)
     if parsed.method ~= "POST" then return nil, 405, "Use POST", cors end
     if parsed.path == "/next" then return 1, nil, nil, cors end
     if parsed.path == "/back" then return -1, nil, nil, cors end
-    return nil, 404, "Use /next or /back", cors
+    if parsed.path == "/connect" then return nil, 204, "", cors end
+    return nil, 404, "Use /next, /back or /connect", cors
 end
 
 return HTTP

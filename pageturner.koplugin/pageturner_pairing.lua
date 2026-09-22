@@ -31,8 +31,15 @@ function Pairing.payload(endpoint, token)
         or #token < 32 or #token > 128 then
         return nil, "Invalid pairing token."
     end
-    -- Both values are deliberately restricted to JSON-safe ASCII above.
-    return string.format('{"version":1,"endpoint":"%s","token":"%s"}', endpoint, token)
+    -- A regular HTTPS link works with native phone cameras. Fragments are not
+    -- sent to GitHub Pages; the web app consumes and removes this immediately.
+    local function encode(value)
+        return (value:gsub("[^A-Za-z0-9%-._~]", function(byte)
+            return string.format("%%%02X", string.byte(byte))
+        end))
+    end
+    return "https://iamads.github.io/pageturner/#version=1&endpoint="
+        .. encode(endpoint) .. "&token=" .. encode(token)
 end
 
 return Pairing

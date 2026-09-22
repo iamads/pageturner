@@ -46,7 +46,7 @@ function PairingMessage:init()
     local qr_size = math.floor(math.min(screen_width * 0.78, screen_height * 0.62))
     local text_width = screen_width - 4 * outer_padding
     local details = (self.route == "tailscale" and "Private Tailscale" or "Local Wi-Fi")
-        .. "\n" .. self.endpoint .. "\nScan in Page Turner, then tap to close"
+        .. "\n" .. self.endpoint .. "\nScan with your phone camera, then tap to close"
 
     local content = VerticalGroup:new{
         align = "center",

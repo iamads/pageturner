@@ -1,6 +1,6 @@
 # Page Turner for KOReader
 
-Minimal Kindle plugin and phone PWA: scan a pairing QR and send authenticated HTTP commands to turn the open book **next** or **back**. Designed against KOReader **2026.03** source. QR pairing and camera scanning are implemented but still require on-device validation.
+Minimal Kindle plugin and phone PWA: scan a pairing QR and send authenticated HTTP commands to turn the open book **next** or **back**. Designed against KOReader **2026.03** source. Native-camera link pairing is implemented locally but still requires on-device validation; the PWA does not scan QR codes.
 
 No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi management, touch controls, or page-rendering behavior. The server is manually enabled per open book.
 
@@ -26,7 +26,7 @@ No voice input yet. No changes to KOReader settings, sleep timers, Wi-Fi managem
 
 3. Safely eject the Kindle, restart KOReader, and open a book. Tap the top of the screen → **Tools → Page Turner (HTTP) → Start Page Turner**. Page Turner is the first entry on the default Tools menu, not inside More tools. Explicit custom menu-order settings still take precedence. If it is missing, check KOReader's plugin manager and restart after enabling it.
 4. Starting the listener creates a new session token and checks private Tailscale Serve with a bounded background command. It uses private Serve only when the active mapping proxies to this plugin's port; otherwise it falls back to the current local Wi-Fi IPv4 address.
-5. A pairing QR appears with **Private Tailscale** or **Local Wi-Fi** and the selected endpoint printed below it. In the Page Turner PWA, choose **Scan Kindle pairing QR** and grant camera permission. Scanning configures the endpoint/token but sends no page-turn request.
+5. A pairing QR appears with **Private Tailscale** or **Local Wi-Fi** and the selected endpoint printed below it. Scan with your phone's ordinary camera and open the link. It opens `https://iamads.github.io/pageturner/`, extracts the credentials, and checks connectivity automatically. **Connected** or **Connection failed** appears inline; no page turns during pairing. Use **Retry connection** after fixing a network failure, or **Enter connection manually** for a modal endpoint/token form.
 6. Tap the Kindle QR to dismiss it, close the KOReader menu so the book is visible, and then send one coordinated command. Use **Show pairing QR** to reopen it and **Connection details (route / IP / port)** for token-free diagnostics. Unsupported/missing details display “Unavailable”; the plugin never enables or reconfigures Wi-Fi.
 
 ## Update an installed copy
@@ -37,24 +37,29 @@ Stop Page Turner and exit KOReader before copying the complete updated `pageturn
 - `pageturner_endpoint.lua`
 - `pageturner_pairing_message.lua`
 
-Safely eject, restart KOReader, open a book, and confirm that Start displays a scannable QR and the correct private/local route. Do not replace the separate Tailscale extension's registered `state/` directory.
+Update the plugin and PWA together: the new link flow requires the updated `pageturner_http.lua` (`POST /connect`) as well as the pairing files. Old JSON QR codes no longer work with the new web app. Deploy the PWA with service-worker cache **v4**; open the site, allow the worker to update, then reload until **Enter connection manually** replaces the old scanner before scanning. This avoids the previous cache-v3 shell consuming your first visit without handling the link.
+
+Safely eject, restart KOReader, open a book, and confirm that Start displays a scannable QR and the correct private/local route. Do not replace the separate Tailscale extension's registered `state/` directory. Rollback means reverting both plugin and PWA, with a fresh service-worker cache version; do not revert Tailscale state.
 
 ## Send commands
 
-The normal client is the PWA. Its scanner reads this versioned QR payload entirely on-device:
+The normal client is the web app. The Kindle QR contains a regular HTTPS link (placeholder token below):
 
-```json
-{"version":1,"endpoint":"https://kindle.example.ts.net","token":"<session-token>"}
+```text
+https://iamads.github.io/pageturner/#version=1&endpoint=https%3A%2F%2Fkindle.example.ts.net&token=<session-token>
 ```
 
-The token is not shown below the QR, persisted by the PWA, put in the endpoint URL, or logged. The PWA sends one bodyless authenticated POST only after the user taps Next or Back.
+The endpoint/token live in the **fragment**, which browsers do not send to GitHub Pages. The app removes it from the current address/history entry before validation or requests and retains credentials only in memory. Camera/browser software still sees the original link; never share or screenshot it. Reloading requires rescanning or manual entry. The token is not shown below the QR, stored by the app, or logged.
 
-`tools/pageturner.py` remains a low-level diagnostic client, but its old `.pageturner-token` no longer automatically matches because every manual Start rotates the Kindle session token. If a current token is deliberately supplied in a private token file, the existing `--token-file` option can be used. Never place the token directly in shell arguments, URLs, screenshots, or logs.
+A valid link automatically sends one bodyless authenticated `POST /connect`. Controls enable only after HTTP 204; failure/three-second timeout stays inline with an explicit safe retry. Next/Back each send one page-turn POST only on a tap. Native cameras normally open a browser, not necessarily the installed PWA; the OS controls that handoff. Private Tailscale and browser mixed-content/local-network requirements are unchanged.
+
+`tools/pageturner.py` remains a low-level diagnostic client, but its old `.pageturner-token` no longer automatically matches because every manual Start rotates the Kindle session token. If a current token is deliberately supplied in a private token file, the existing `--token-file` option can be used. Never place the token directly in shell arguments, query strings, shared URLs, screenshots, or logs.
 
 ### HTTP contract
 
 - `POST /next` / `POST /back`, with `Authorization: Bearer <token>` and an empty body.
-- Browser access is allowed only from the exact origin `https://iamads.github.io`. A valid bodyless `OPTIONS` preflight for POST plus Authorization on `/next` or `/back` receives `204`; it never requires the token or turns a page. Actual POSTs remain authenticated.
+- `POST /connect`, with the same Authorization header and an empty body, returns `204` when authenticated. It does not turn a page, enqueue a command or require the Kindle QR/menu to be closed. It proves current connectivity/authentication only, not reader readiness or future reachability.
+- Browser access is allowed only from the exact origin `https://iamads.github.io`. A valid bodyless `OPTIONS` preflight for POST plus Authorization on `/next`, `/back` or `/connect` receives `204`; it never requires the token or turns a page. Actual POSTs remain authenticated.
 - `202`: authenticated command accepted for dispatch on KOReader's next UI tick. **Not confirmation of a visible page change.** The body includes a per-book request counter for matching Kindle logs.
 - `401`: missing/incorrect token on an actual command; no turn.
 - `409`: book not in the foreground, a menu/dialog is open, or a turn is already pending; no turn.
@@ -98,7 +103,7 @@ The <100 ms delivery target is an aspiration, not a v1 blocker. Client timing in
 
 ## Test browser connectivity and scoped CORS
 
-Page Turner has token-safe transport logs and narrowly scoped CORS for the GitHub Pages PWA. It accepts browser preflight only for the exact origin `https://iamads.github.io`, routes `/next` and `/back`, method POST, and header Authorization. Actual page-turn POSTs still require the current session token and all reader guards. Scanning a QR configures the PWA only; it does not trigger preflight or a command.
+Page Turner has token-safe transport logs and narrowly scoped CORS for the GitHub Pages PWA. It accepts browser preflight only for the exact origin `https://iamads.github.io`, routes `/next`, `/back` and `/connect`, method POST, and header Authorization. Actual page-turn POSTs still require the current session token and all reader guards. Opening a pairing link triggers preflight and an authenticated `/connect` check, never a page-turn command.
 
 1. Stop Page Turner and exit KOReader. Copy the complete updated
    `pageturner.koplugin/` folder into the existing KOReader plugins directory,
@@ -107,7 +112,7 @@ Page Turner has token-safe transport logs and narrowly scoped CORS for the GitHu
 2. Keep the existing `config.lua`. Restart KOReader, open a book, start Page
    Turner, scan the new pairing QR, then close the QR and menus.
 3. In Chrome, open DevTools **Console** and **Network** (all requests, including
-   OPTIONS). Open the Pages PWA, scan the QR (or use manual fallback), and tap
+   OPTIONS). Scan with the native phone camera (or use manual fallback), and tap
    Next **once**. Observe the Kindle before any further command.
 4. Inspect the corresponding `PageTurner:` lines in `koreader/crash.log` using
    existing shell/file access. Do not attach the entire log or an unredacted HAR;
@@ -133,7 +138,8 @@ Interpretation:
   normal; preflight only grants permission to attempt the authenticated POST.
 - **OPTIONS + 400/403/404/405:** Origin, route, requested method/header, body, or
   private-network request was outside the narrow allowlist. No turn occurred.
-- **POST + 401:** The command reached the plugin but authentication failed.
+- **POST /connect + 204:** Authenticated connection check passed without a page turn.
+- **POST + 401:** The request reached the plugin but authentication failed.
 - **POST + 202:** Accepted for deferred dispatch; check existing `accepted`,
   `dispatched`, and `cancelled` lines and the visible Kindle page. A browser can
   still report a CORS error after the server accepted a command. Do not retry.
@@ -178,7 +184,7 @@ that obstacle. Actual iPhone behavior remains untested. See
 luajit tests/test_plugin.lua
 luajit tests/test_network.lua
 python3 -m unittest discover -s tests -p 'test_*.py' -v
-node --test tests/test_pwa_endpoint.mjs
+node --test tests/test_pwa_*.mjs
 ```
 
 Lua tests use KOReader/socket doubles. Python tests exercise the laptop client with a real local HTTP fixture. Optional real LuaSocket transport tests (LuaSocket must be available to LuaJIT):
@@ -187,4 +193,4 @@ Lua tests use KOReader/socket doubles. Python tests exercise the laptop client w
 PAGETURNER_SOCKET_TESTS=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-These do **not** validate Kindle firewall behavior, QR rendering/readability, phone camera permission/decoding, actual browser transport, or device power behavior. Source research and design limits: [`docs/koreader-research.md`](docs/koreader-research.md). Product sequencing: [`roadmap.md`](roadmap.md).
+These do **not** validate Kindle firewall behavior, QR rendering/readability, native phone camera recognition/link opening, actual browser transport, or device power behavior. Source research and design limits: [`docs/koreader-research.md`](docs/koreader-research.md). Product sequencing: [`roadmap.md`](roadmap.md).

@@ -65,7 +65,7 @@ KOReader v2026.03 contains built-in QR rendering rather than requiring an extern
 - `frontend/ui/widget/qrmessage.lua` displays a full-screen QR and handles tap/key dismissal.
 - `plugins/qrclipboard.koplugin/main.lua` is an existing on-device example that shows phone-scannable clipboard content.
 
-Page Turner's versioned endpoint/token JSON is far below the size limit. A custom pairing message composes `QRWidget` with wrapped text underneath so the user can verify **Private Tailscale** versus **Local Wi-Fi** and the selected endpoint without displaying the token. This is source-level feasibility evidence; QR sizing/readability on the Paperwhite 3 and camera decoding on the actual phone still require device tests.
+Page Turner's original versioned endpoint/token JSON was superseded by the approved camera-link strategy: an HTTPS project URL carrying URL-encoded version/endpoint/token in its fragment. It remains far below the size limit and is recognizable as a link by ordinary phone QR scanners. A custom pairing message composes `QRWidget` with wrapped text underneath so the user can verify **Private Tailscale** versus **Local Wi-Fi** and the selected endpoint without displaying the token. This is source-level feasibility evidence; QR sizing/readability on the Paperwhite 3 and native-camera recognition/opening on the actual phone still require device tests. The web app no longer decodes QR codes.
 
 Session tokens should come from 32 bytes read from `/dev/urandom`, be held only in memory, survive normal suspend/resume for the same enabled reading session, and be invalidated by manual Stop, book close or KOReader exit. A missing/short random read must fail closed rather than fall back to time-seeded randomness.
 
