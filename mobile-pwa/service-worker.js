@@ -1,5 +1,5 @@
-const CACHE = "pageturner-spike-v1";
-const SHELL = ["./", "index.html", "styles.css", "app.js", "manifest.webmanifest"];
+const CACHE = "pageturner-spike-v2";
+const SHELL = ["./", "index.html", "styles.css", "app.js", "endpoint.js", "manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

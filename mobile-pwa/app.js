@@ -1,8 +1,10 @@
+import { parseEndpoint } from "./endpoint.js";
+
 const $ = (id) => document.getElementById(id);
 
 const elements = {
-  form: $("connection-form"), protocol: $("protocol"), host: $("host"),
-  port: $("port"), token: $("token"), connection: $("connection-state"),
+  form: $("connection-form"), endpointInput: $("endpoint-input"),
+  token: $("token"), connection: $("connection-state"),
   start: $("start-session"), end: $("end-session"), wake: $("wake-state"),
   next: $("next"), back: $("back"), command: $("command-state"),
   origin: $("diag-origin"), secure: $("diag-secure"), display: $("diag-display"),
@@ -45,15 +47,10 @@ function updateDiagnostics() {
 }
 
 function parseConnection() {
-  const protocol = elements.protocol.value;
-  const host = elements.host.value.trim();
-  const port = Number(elements.port.value);
+  const endpoint = parseEndpoint(elements.endpointInput.value);
   const token = elements.token.value;
-  if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)) throw new Error("Enter the Kindle IPv4 address.");
-  if (host.split(".").some((part) => Number(part) > 255)) throw new Error("Enter a valid IPv4 address.");
-  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Port must be 1024–65535.");
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) throw new Error("Enter the 32–128 character Page Turner token.");
-  return {baseUrl: `${protocol}://${host}:${port}`, protocol, host, port, token};
+  return {...endpoint, token};
 }
 
 elements.form.addEventListener("submit", (event) => {
@@ -63,7 +60,7 @@ elements.form.addEventListener("submit", (event) => {
     elements.connection.textContent = `Configured for ${connection.baseUrl}`;
     elements.endpoint.textContent = connection.baseUrl;
     elements.token.value = "";
-    record(`Connection configured (${connection.protocol}, token omitted)`);
+    record(`Connection configured (${connection.transport}, ${connection.protocol}, token omitted)`);
   } catch (error) {
     connection = null;
     elements.connection.textContent = error.message;

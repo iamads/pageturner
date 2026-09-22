@@ -13,7 +13,7 @@
 <body>
   <main>
     <header>
-      <p class="eyebrow">iPhone feasibility spike</p>
+      <p class="eyebrow">Phone feasibility spike</p>
       <h1>Page Turner</h1>
       <p class="warning">Experimental harness. A timeout is uncertain—check the Kindle and never tap again automatically.</p>
     </header>
@@ -21,20 +21,10 @@
     <section class="card" aria-labelledby="connection-title">
       <h2 id="connection-title">Connection</h2>
       <form id="connection-form">
-        <div class="endpoint-row">
-          <label>Protocol
-            <select id="protocol" name="protocol">
-              <option value="http">HTTP</option>
-              <option value="https">HTTPS</option>
-            </select>
-          </label>
-          <label class="host">Kindle IP
-            <input id="host" name="host" inputmode="decimal" autocomplete="off" placeholder="192.168.1.42" required>
-          </label>
-          <label>Port
-            <input id="port" name="port" inputmode="numeric" pattern="[0-9]*" value="8088" required>
-          </label>
-        </div>
+        <label>Kindle endpoint
+          <input id="endpoint-input" name="endpoint" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="192.168.1.42 or https://kindle.tailnet.ts.net" required>
+        </label>
+        <p class="hint">Enter a direct Kindle IP or private Tailscale URL. Add a custom port after a colon. Defaults: IP → HTTP/8088; <code>*.ts.net</code> → HTTPS/443.</p>
         <label>Bearer token
           <input id="token" name="token" type="password" autocomplete="off" minlength="32" maxlength="128" required>
         </label>

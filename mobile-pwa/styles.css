@@ -15,9 +15,9 @@ h2 { margin: 0 0 1rem; font-size: 1.15rem; }
 .warning { color: #fde68a; line-height: 1.4; }
 .card { padding: 1rem; margin: 1rem 0; border: 1px solid #334155; border-radius: 1rem; background: rgba(15, 23, 42, .92); }
 label { display: grid; gap: .35rem; color: #cbd5e1; font-size: .85rem; font-weight: 650; }
-input, select, button { min-height: 3rem; border-radius: .7rem; font: inherit; }
-input, select { width: 100%; border: 1px solid #475569; background: #020617; color: #f8fafc; padding: .7rem; font-size: 1rem; }
-.endpoint-row { display: grid; grid-template-columns: 6rem 1fr 5.5rem; gap: .6rem; margin-bottom: .8rem; }
+input, button { min-height: 3rem; border-radius: .7rem; font: inherit; }
+input { width: 100%; border: 1px solid #475569; background: #020617; color: #f8fafc; padding: .7rem; font-size: 1rem; }
+code { color: #bfdbfe; }
 button { border: 0; padding: .75rem 1rem; font-weight: 750; touch-action: manipulation; }
 button:disabled { opacity: .4; }
 .secondary { color: #f8fafc; background: #334155; border: 1px solid #64748b; }
@@ -34,7 +34,3 @@ dl { margin: 1rem 0; }
 dl div { display: grid; grid-template-columns: 8rem 1fr; gap: .5rem; padding: .45rem 0; border-bottom: 1px solid #1e293b; }
 dt { color: #94a3b8; }
 dd { margin: 0; overflow-wrap: anywhere; }
-@media (max-width: 420px) {
-  .endpoint-row { grid-template-columns: 1fr 1fr; }
-  .endpoint-row .host { grid-column: 1 / -1; grid-row: 1; }
-}
