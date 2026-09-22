@@ -1,6 +1,6 @@
 # Camera Link Pairing Specification
 
-> Status: Implementing — code complete locally; deployment and device acceptance pending
+> Status: Implemented — deployed; owner reports the camera-link setup works
 > Last updated: 2026-09-22
 
 ## Objective
@@ -72,14 +72,14 @@ Proposed defaults for final confirmation:
 
 ## Acceptance criteria
 Checked items have implementation/local-test evidence only, not physical-device acceptance.
-- [ ] Native camera recognizes the QR as a website link (device validation required).
+- [x] Native camera recognizes the QR as a website link on the owner's tested setup (owner: “works”; detailed device matrix not supplied).
 - [x] Valid link configures endpoint/token automatically and checks authenticated connectivity without turning a page.
 - [x] Success/failure is inline, never a popup.
 - [x] PWA contains no camera/QR scanning integration.
 - [x] Credentials are not sent to hosting via URL query, logged or persisted; fragment removal precedes fetch. Manual form uses `method="dialog"`, preventing default GET submission to hosting even without its JS handler.
 - [ ] Manual input uses an accessible modal; both connection paths show results on the main page. Native dialog/labels/focus restoration implemented and controller-tested; actual browser accessibility remains to verify.
 - [x] Invalid links send no request; stale token and timeout fail safely; retry never turns a page.
-- [ ] Connection check succeeds with Kindle QR/menu open on the actual Kindle (mocked covered-reader and pending-turn tests pass).
+- [x] Current deployed pairing/connection setup works on the owner's Kindle/phone environment. The concise report does not separately establish every menu/pending-turn scenario.
 - [x] Existing command/token behavior is preserved in regression tests.
 - [x] Automated payload, validation, API/auth/CORS and UI-flow coverage passes; physical native-camera scan remains a device acceptance test.
 
@@ -89,7 +89,7 @@ Checked items have implementation/local-test evidence only, not physical-device 
 - Removed camera UI, camera diagnostics and vendored decoder; replaced cache v3 with v4. Existing v3 clients should load the site to update the worker, then reload to the new manual-modal shell before scanning.
 - Local tests: **87 passed** — 39 Lua plugin/API/pairing, 9 Lua network, 6 Python client and 33 JS parser/controller/cache/wake-lock tests. Three optional real-socket tests skipped; local LuaSocket is unavailable. JS syntax and `git diff --check` pass.
 - JS app tests use DOM/fetch doubles; they do not validate native modal behavior, actual QR recognition, phone security policy or wake-lock behavior.
-- Deployment, plugin installation and device tests have not been performed. No push, device settings, Tailscale state, or phase transitions were made.
+- Commit `68e028e` is on `main`; live HTTP checks confirm cache-v4 app assets and `/connect` controller code at https://iamads.github.io/pageturner/. The owner installed the updated plugin and reports the setup works. No phase transition is inferred; detailed stale-token, wake-lock, interruption, accessibility, Android and long-session evidence remains pending.
 
 ## Delivery and rollback
 Proposed: update Kindle plugin and PWA together, invalidate obsolete scanner service-worker caches, remove decoder assets, and update setup documentation plus current roadmap/handoff references while preserving historical decisions. Old JSON QR payloads require the updated plugin. Run existing regression suites plus new tests; explicitly distinguish automated results from phone/Kindle validation. Rollback requires reverting both plugin and PWA and invalidating the PWA cache; Tailscale registration/state remains untouched.
@@ -106,4 +106,5 @@ Proposed: update Kindle plugin and PWA together, invalidate obsolete scanner ser
 | 2026-09-22 | Recorded requested strategy and proposed security/connectivity decisions; implementation not started. |
 | 2026-09-22 | User approved fragment/memory-only credentials and safe connection check with inline retry; retained manual fallback with new modal-entry requirement. Added implementation defaults for final review; no code implemented. |
 | 2026-09-22 | User approved the complete final checklist. Confirmed remaining defaults and constraints as D-007; specification marked Approved. Awaiting choice of execution plan or implementation. |
-| 2026-09-22 | User requested implementation. Implemented URL QR, safe authenticated check, fragment consumption, inline results/retry, manual modal and scanner removal; 87 local tests pass. Updated docs, roadmap and CI while preserving prior handoff edits as historical evidence. Deployment and device acceptance remain pending. |
+| 2026-09-22 | User requested implementation. Implemented URL QR, safe authenticated check, fragment consumption, inline results/retry, manual modal and scanner removal; 87 local tests pass. Updated docs, roadmap and CI while preserving prior handoff edits as historical evidence. Deployment and device acceptance were pending at that point. |
+| 2026-09-22 | Owner reports “works” after installing the updated plugin. Verified the current cache-v4 app and `/connect` controller are live at the project URL. Marked implementation deployed/working while retaining unreported detailed reliability and lifecycle checks. |

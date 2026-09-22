@@ -1,119 +1,185 @@
-# Kindle KUAL utilities
+# Private Tailscale for Page Turner
 
-## Page Turner Tunnel compatibility check
+This KUAL extension gives Page Turner a private HTTPS address that an iPhone can reach from the hosted web app. It runs an isolated Tailscale daemon in userspace mode, registers the Kindle in your tailnet, and configures **Tailscale Serve** to proxy:
 
-This check collects the minimum system information needed to decide whether a maintained Tailscale binary can run on the target Kindle. It does not install or run Tailscale, change networking, or collect CPU serial, books, Wi-Fi details, credentials, or Page Turner tokens.
+```text
+https://pageturner-kindle.<your-tailnet>.ts.net
+    → http://127.0.0.1:8088
+```
 
-1. Connect the Kindle over USB.
-2. Copy the folder [`pageturner-tunnel`](pageturner-tunnel/) into the Kindle's `extensions` folder. The resulting path must be:
+It does **not** enable Funnel, Tailscale SSH, exit nodes, subnet routes, or public access.
 
-   ```text
-   /mnt/us/extensions/pageturner-tunnel/menu.json
-   ```
+The tested device is a Kindle Paperwhite 3 with firmware 5.12.3, KUAL, and KOReader 2026.03. Tailscale does not officially target this old Kindle platform; test other devices carefully.
 
-3. Safely eject the Kindle.
-4. Open KUAL → **Page Turner Tunnel** → **Check compatibility**.
-5. Wait for the success message.
-6. Reconnect USB and copy this report back to the computer:
+## Requirements
 
-   ```text
-   /mnt/us/pageturner-compatibility.txt
-   ```
+- KUAL and KOReader installed on the Kindle.
+- A Tailscale account.
+- The official Tailscale app installed and signed in on the phone.
+- A computer/USB connection.
+- Approximately 70 MB for the two ARM binaries plus state/logs.
 
-7. Share the report for review. It is designed to omit device serial numbers and application secrets, but you may inspect it before sharing.
+## 1. Prepare the extension
 
-To remove the diagnostic, delete `/mnt/us/extensions/pageturner-tunnel/` and `/mnt/us/pageturner-compatibility.txt`. No system files are changed.
+The large Tailscale binaries are intentionally not stored in Git. Download the tested official archive:
 
-## Current Tailscale launch test
+```text
+https://pkgs.tailscale.com/stable/tailscale_1.102.4_arm.tgz
+```
 
-The prepared local package includes the official Tailscale 1.102.4 32-bit ARM binaries. The downloaded archive was verified against the SHA-256 checksum published by Tailscale; details are in `pageturner-tunnel/bin/PROVENANCE.txt`.
+Expected archive SHA-256:
 
-This test only invokes `tailscale version` and `tailscaled --version`, with a 15-second limit when the Kindle provides the `timeout` command. It does not start the daemon, create node state, log in, or enable Funnel.
+```text
+b981a59cb85fb923ee6e1860ee6934772c83a840a6627f0dbfd7711ed690b869
+```
 
-1. Replace the earlier `/mnt/us/extensions/pageturner-tunnel/` folder with the newly prepared folder, including its `bin` directory. Do not merge it with the old copy because a failed copy could leave a partial binary.
-2. Safely eject the Kindle and reopen KUAL.
-3. Select **Page Turner Tunnel → Test current Tailscale launch** once.
-4. Reconnect USB and retrieve:
+Verify it before extracting. For example, on macOS:
 
-   ```text
-   /mnt/us/pageturner-tailscale-launch-test.txt
-   ```
+```sh
+shasum -a 256 tailscale_1.102.4_arm.tgz
+```
 
-5. Share that report for review.
+On Linux:
 
-After the test, the extension can be removed using the instructions above. Also delete `/mnt/us/pageturner-tailscale-launch-test.txt` if no longer needed.
+```sh
+sha256sum tailscale_1.102.4_arm.tgz
+```
 
-## Temporary daemon test
+Extract it and copy the `tailscale` and `tailscaled` ARM executables into:
 
-After the launch test passes, the temporary daemon test starts `tailscaled` for approximately 15 seconds with:
+```text
+kindle-kual/pageturner-tunnel/bin/tailscale
+kindle-kual/pageturner-tunnel/bin/tailscaled
+```
 
-- userspace networking (no TUN device required),
-- ephemeral in-memory state,
-- no login or auth key,
-- no Serve or Funnel configuration, and
-- Tailscale support-log uploads disabled for the test.
+The individual expected hashes and source details are in [`pageturner-tunnel/bin/PROVENANCE.txt`](pageturner-tunnel/bin/PROVENANCE.txt).
 
-It checks the local API socket, records selected process memory/thread metrics, classifies daemon errors without copying raw logs into the report, and then stops only the process it started. Temporary state, socket, and log files are removed.
+Copy the complete prepared `pageturner-tunnel/` folder to the Kindle:
 
-1. Copy the updated `pageturner-tunnel/scripts/test-tailscaled-daemon.sh` and `pageturner-tunnel/menu.json` to their matching paths under `/mnt/us/extensions/pageturner-tunnel/`. The existing binaries do not need to be copied again.
-2. Safely eject and reopen KUAL.
-3. Select **Page Turner Tunnel → Test temporary Tailscale daemon** once and wait roughly 20 seconds.
-4. Reconnect USB and retrieve:
+```text
+/mnt/us/extensions/pageturner-tunnel/menu.json
+/mnt/us/extensions/pageturner-tunnel/bin/tailscale
+/mnt/us/extensions/pageturner-tunnel/bin/tailscaled
+```
 
-   ```text
-   /mnt/us/pageturner-tailscaled-daemon-test.txt
-   ```
+Safely eject the Kindle and open KUAL. **Page Turner Tunnel** should appear.
 
-5. Share that report for review.
+## 2. Optional compatibility checks
 
-## Register the Kindle with a private tailnet
+Before registration, these KUAL actions are safe diagnostics:
 
-This uses a one-off auth key; it does not put the Tailscale account password on the Kindle. Registration creates persistent node identity in `pageturner-tunnel/state/`. The scripts do not enable Tailscale SSH, exit nodes, accepted routes, or Tailscale DNS.
+1. **Check compatibility** — records basic kernel/CPU/memory/storage/TUN/CA information in `/mnt/us/pageturner-compatibility.txt`.
+2. **Test current Tailscale launch** — runs only `tailscale version` and `tailscaled --version`.
+3. **Test temporary Tailscale daemon** — runs a logged-out, in-memory userspace daemon for about 15 seconds, checks its local API/resource use, and cleans it up.
 
-1. In the [Tailscale admin console Keys page](https://login.tailscale.com/admin/settings/keys), choose **Generate auth key** with:
-   - **Reusable:** off (one-off)
-   - **Ephemeral:** off
-   - **Pre-approved:** on, if shown
-   - **Expiration:** 1 day
-   - **Tags:** none
-2. Copy the key once. Never paste it into source control, chat, a screenshot, or a URL.
-3. On the computer, create a plain-text file named `auth.key` containing only the key on one line.
-4. Copy the updated `menu.json` and these scripts into their matching Kindle paths:
-   - `scripts/start-private-tailscale.sh`
-   - `scripts/register-private-tailscale.sh`
-   - `scripts/status-private-tailscale.sh`
-   - `scripts/stop-private-tailscale.sh`
-5. Create this Kindle folder if needed, then copy the key to the exact path:
+These checks do not register the Kindle or configure Serve/Funnel.
 
-   ```text
-   /mnt/us/extensions/pageturner-tunnel/private/auth.key
-   ```
+## 3. Register the Kindle once
 
-6. Safely eject and reopen KUAL.
-7. Select **Page Turner Tunnel → Register Kindle with auth key** once. This starts the isolated userspace daemon, registers it as `pageturner-kindle`, and deletes `auth.key` only after successful registration. A one-off key is automatically revoked after use.
-8. Select **Show private Tailscale status**. The Kindle should also appear on the admin console's Machines page.
-9. If registration fails, do not share `private/auth.key` or an unreviewed `logs/register.log`. The key is retained for a retry.
+Create a one-use key in the [Tailscale admin console](https://login.tailscale.com/admin/settings/keys):
 
-**Start private Tailscale** reconnects using persistent node state; no auth key is needed after registration. **Stop private Tailscale** stops only the daemon owned by this extension and preserves node state for the next test. It does not log the node out or remove it from the tailnet.
+- **Reusable:** off
+- **Ephemeral:** off
+- **Pre-approved:** on, if available
+- **Expiration:** one day
+- **Tags:** none, unless your own tailnet policy requires an approved tag
 
-`Show private Tailscale status` displays briefly through KUAL and, in the updated script, also writes `/mnt/us/extensions/pageturner-tunnel/logs/status.log`.
+Save the key as a plain-text file named `auth.key`, containing only the key on one line. Copy it to:
 
-## Configure private HTTPS Serve
+```text
+/mnt/us/extensions/pageturner-tunnel/private/auth.key
+```
 
-Serve is private to authorized tailnet devices. These scripts do not run `tailscale funnel` or create a public endpoint.
+Never commit, screenshot, share, or put the key in a URL.
 
-1. Copy the updated `menu.json` and these scripts to matching paths on the Kindle:
-   - `scripts/start-private-tailscale.sh`
-   - `scripts/status-private-tailscale.sh`
-   - `scripts/configure-private-serve.sh`
-   - `scripts/status-private-serve.sh`
-   - `scripts/disable-private-serve.sh`
-2. Start Page Turner in KOReader with a book foregrounded; it must listen on port 8088.
-3. In KUAL, select **Configure private HTTPS Serve** once. The action starts/reuses the registered Tailscale daemon, shows a live 15-second reconnection wait, resets old Serve configuration with a 15-second limit, and starts HTTPS setup. Running **Start private Tailscale** separately first is valid but no longer required.
-4. First-time HTTPS enablement is interactive in Tailscale 1.102.4: the CLI can print an admin URL and wait. The script displays `HTTPS approval required`, the URL split across Kindle screen lines, and a two-minute counter. Open that URL while signed into Tailscale. Success displays the private endpoint; failure and connection/Serve timeouts are explicit. Detailed timestamped output remains in `logs/serve-configure.log`.
-5. Select **Show private Serve status**. The Kindle immediately shows that it is checking, updates a 15-second wait counter, then shows active/not configured/failed/timeout plus the private HTTPS URL and local proxy target when active. Timestamped output is saved to `logs/serve-status.log`.
-6. Keep Tailscale connected on the iPhone and open the displayed HTTPS URL with `/next` appended. A browser GET has no bearer token, so expected proof of private HTTPS reachability is HTTP 401—not a page turn.
+Safely eject and select:
 
-The persistent daemon launch supplies both the explicit `state/tailscaled.state` file and `--statedir=state`. Tailscale requires the latter writable root for managed certificate storage; without it, Serve can appear active while every client handshake fails with `no TailscaleVarRoot`. After updating `start-private-tailscale.sh`, stop the already-running daemon once before configuring Serve again so the new launch argument takes effect. This preserves the registered node state.
+```text
+KUAL → Page Turner Tunnel → Register Kindle with auth key
+```
 
-**Disable private Serve** removes the node's Serve configuration. It does not stop Tailscale or remove node registration.
+This starts the private userspace daemon, registers the machine as `pageturner-kindle`, and deletes `private/auth.key` after successful registration. Registration state remains in:
+
+```text
+/mnt/us/extensions/pageturner-tunnel/state/
+```
+
+Confirm success with **Show private Tailscale status** and in the Tailscale Machines admin page.
+
+Install/sign in to Tailscale on the phone using the same tailnet. Keep it connected while using Page Turner.
+
+## 4. Configure private HTTPS Serve
+
+The bundled script targets Page Turner's default port, `8088`.
+
+1. Open a book in KOReader and start Page Turner once.
+2. Open KUAL → **Page Turner Tunnel → Configure private HTTPS Serve**.
+3. The action starts/reuses the daemon and waits for the tailnet connection.
+4. On first setup, Tailscale may display an HTTPS-approval URL on the Kindle. Open that URL while signed into the Tailscale admin account and approve HTTPS.
+5. Select **Show private Serve status** and verify that it displays a private `https://…ts.net` endpoint proxying to `http://127.0.0.1:8088`.
+
+Serve configuration persists. The daemon uses the explicit writable `state/` directory for both node identity and managed certificate material; do not delete or overwrite it during normal updates.
+
+If Page Turner uses a custom port, edit `BACKEND` in `scripts/configure-private-serve.sh` and keep it consistent with `pageturner.koplugin/config.lua`.
+
+## Normal use
+
+After one-time registration/configuration:
+
+1. Connect the phone's Tailscale app.
+2. In KUAL, select **Start private Tailscale**. Running **Configure private HTTPS Serve** also starts it when needed.
+3. Optionally confirm **Show private Serve status**.
+4. Open a book in KOReader and select **Start Page Turner**.
+5. The pairing QR should say **Private Tailscale**.
+6. Scan it with the phone's native camera and open https://iamads.github.io/pageturner/.
+
+To stop the tunnel without losing registration, select **Stop private Tailscale**. To remove only the HTTPS proxy configuration, select **Disable private Serve**.
+
+## Updating safely
+
+Do not replace the complete installed extension after registration. Preserve these Kindle directories:
+
+```text
+/mnt/us/extensions/pageturner-tunnel/state/
+/mnt/us/extensions/pageturner-tunnel/private/
+```
+
+`state/` contains the machine identity and certificate material. Copy updated scripts, `menu.json`, `config.xml`, or binaries individually. Stop private Tailscale before replacing binaries.
+
+Repository `state/`, `private/`, and `logs/` contain only placeholders; copying them over the installed extension can destroy working state.
+
+## Logs and troubleshooting
+
+Logs are written under:
+
+```text
+/mnt/us/extensions/pageturner-tunnel/logs/
+```
+
+Useful KUAL actions:
+
+- **Show private Tailscale status** — confirms tailnet connectivity.
+- **Show private Serve status** — confirms the HTTPS URL and local proxy target.
+- **Start private Tailscale** — reconnects using existing state; no auth key is needed.
+- **Configure private HTTPS Serve** — resets/recreates private Serve and may request HTTPS approval.
+
+Common failures:
+
+- **Missing tailscaled binary:** prepare/copy both official ARM executables into `bin/`.
+- **Missing KOReader CA bundle:** this setup requires `/mnt/us/koreader/data/ca-bundle.crt`.
+- **Tailscale process exists but socket is missing:** restart the Kindle, then try again.
+- **Tailnet connection timeout:** check the Kindle network and machine status in Tailscale admin.
+- **Serve active but TLS fails / `no TailscaleVarRoot`:** ensure the current `start-private-tailscale.sh` launches with `--statedir=<extension>/state`; stop and restart the daemon once after updating that script.
+- **QR shows Local Wi-Fi:** Serve is inactive, unreachable, or not mapped to Page Turner's configured port. Run **Show private Serve status**.
+
+Review logs before sharing them. Never share auth keys, `tailscaled.state`, certificate keys, pairing links, or Page Turner bearer tokens.
+
+## Complete removal
+
+1. Select **Disable private Serve**.
+2. Select **Stop private Tailscale**.
+3. Remove `pageturner-kindle` from the Tailscale Machines admin page.
+4. Delete `/mnt/us/extensions/pageturner-tunnel/` from the Kindle.
+5. Delete the optional compatibility reports from `/mnt/us/` if present.
+
+Deleting the extension's `state/` is destructive: registration cannot be recovered without registering again.

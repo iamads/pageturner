@@ -1,34 +1,40 @@
 # Mobile PWA control — handoff
 
-## Current implementation checkpoint — camera-link replacement (2026-09-22)
+## Current checkpoint — camera-link pairing works (2026-09-22)
 
-The owner reported poor in-PWA QR behavior and approved [`camera-link-pairing-spec.md`](camera-link-pairing-spec.md), then requested implementation. **The replacement is implemented locally, not deployed or device-validated in this run.** The previous deployment/checkpoint is preserved below as historical evidence, not current operating instructions.
+Commit `68e028e` (`changed strategy`) is on `main`, and the cache-v4 frontend is live at **https://iamads.github.io/pageturner/**. Live checks returned HTTP 200 for the app and confirmed the deployed controller uses `consumePairingFragment` and authenticated `/connect`; the deployed HTML contains the manual modal and no old scanner.
 
-### New pairing/API behavior
+After installing the updated KOReader plugin, the owner reported **“works.”** This confirms the current camera-link setup works on the owner's Kindle/phone environment. The report was not broken down into a formal matrix, so do not infer completion of the stale-token, interruption, wake-lock, Android, battery, or two-session gates from this one confirmation.
 
-- KOReader now encodes `https://iamads.github.io/pageturner/#version=1&endpoint=…&token=…` in its QR. Scan with the ordinary phone camera and open the website. The PWA has no camera integration or QR decoder.
-- Credentials are URL-encoded in the fragment, never sent to GitHub Pages, cleared from the current address/history entry before validation/fetch, and retained only in memory. Camera/browser software can still see the original link; do not share/log/screenshot it.
-- Valid link arrival automatically performs bodyless authenticated `POST /connect`, with the existing exact Pages-origin CORS allowlist extended to this route. HTTP 204 means authenticated reachability, not reader readiness. It works with the QR/menu open and neither queues nor dispatches a page turn.
-- Three-second timeout, inline success/failure, explicit safe retry, and Next/Back enabled only after successful verification. Invalid links send no request. Superseded check responses cannot enable stale credentials.
-- **Enter connection manually** opens a modal with masked token and Connect/Cancel. Results stay inline on the main page. Cancel/Escape clears input without replacing the current connection.
-- Per-start token rotation, suspend/resume retention, Serve/local endpoint selection, one-shot Next/Back, reader guards, foreground wake lock and no-public-exposure boundaries remain unchanged. Reload requires rescanning/manual setup. Native cameras may open a browser rather than the installed PWA; record the actual context and test installed-context wake/control separately.
+### Current behavior
 
-### Next actions
+- KOReader encodes `https://iamads.github.io/pageturner/#version=1&endpoint=…&token=…` in its QR. The ordinary phone camera opens the hosted app; the PWA itself has no camera integration or QR decoder.
+- Credentials are URL-encoded in the fragment, never sent to GitHub Pages, cleared from the current address/history entry before validation/fetch, and retained only in memory. Camera/browser software can still see the original link; never share/log/screenshot it.
+- Arrival performs bodyless authenticated `POST /connect`. HTTP 204 displays inline **Connected** and enables controls without turning a page. Failure remains inline with an explicit safe retry.
+- **Enter connection manually** provides the endpoint/masked-token fallback in a modal. Reloading requires rescanning or manual setup.
+- Page turns remain one-shot authenticated requests with existing reader/pending-turn guards and no automatic retry.
+- Private Serve remains the tested iPhone transport; local HTTP remains an unvalidated platform-dependent fallback. Funnel remains disabled.
 
-1. Review/publish the local changes and deploy `mobile-pwa/`; the prior Pages deployment below does **not** include them.
-2. Stop Page Turner and exit KOReader. Update the complete plugin while preserving `config.lua`. In particular, copy the new `pageturner_http.lua`, `pageturner_pairing.lua` and `pageturner_pairing_message.lua`. Never overwrite registered Tailscale `state/`.
-3. Open the website to allow the service worker to update to cache **v4**, then reload until the old scanner is replaced by **Enter connection manually**. Old cache-v3 pages cannot handle the new link on their first load. Old JSON QR payloads require the updated plugin.
-4. Start Page Turner with private Serve active, scan using the native phone camera, and verify inline Connected while the QR remains open. Verify fragment removal and no page turn. Dismiss Kindle menus, then coordinate one Next and one Back.
-5. Verify invalid/stale links, timeout/explicit retry, manual modal Connect/Cancel/Escape, reload, token rotation and suspend/resume. Test local fallback/Android separately; keep Funnel disabled. No device evidence or phase advancement is claimed.
-6. Rollback requires reverting plugin and PWA together with another cache-version bump; preserve Tailscale identity/state.
+### Installation and usage documentation
+
+- [`../README.md`](../README.md) is now the current user guide: architecture flow, prerequisites, complete plugin setup, tested Tailscale path, pairing/use, update, security, troubleshooting, API and uninstall.
+- [`../kindle-kual/README.md`](../kindle-kual/README.md) now documents third-party setup from a repository clone, including downloading/verifying binaries that Git intentionally omits, one-use registration, HTTPS Serve, daily operation and state-safe updates/removal.
+- [`../mobile-pwa/README.md`](../mobile-pwa/README.md) now describes the production static app rather than the superseded scanner feasibility harness.
+
+### Remaining evidence / next actions
+
+1. Record exactly what the successful report covered: native-camera recognition, inline Connected, one visible Next and Back, browser versus installed display mode, and wake-lock state.
+2. Validate token rotation/stale rejection, malformed link, timeout/retry, manual modal, reload and suspend/resume.
+3. Run the foreground wake-lock interval and two 30-minute reading sessions before claiming the phase gate.
+4. Test Android direct HTTP separately if broader platform support is desired.
+5. Preserve `/mnt/us/extensions/pageturner-tunnel/state/` and keep Funnel/public exposure disabled.
 
 ### Validation and current code map
 
-- Local regression tests: **87 passing** (39 Lua plugin/API/pairing, 9 Lua network, 6 Python client, 33 JavaScript endpoint/link/controller/cache/wake tests). Three optional real-LuaSocket tests are skipped; the local LuaSocket module is unavailable. JS controller tests use DOM/fetch doubles, not a browser/device emulator.
-- Commands: `luajit tests/test_plugin.lua`, `luajit tests/test_network.lua`, `python3 -m unittest discover -s tests -p 'test_*.py' -v`, `node --test tests/test_pwa_*.mjs`.
-- Payload/rendering: `pageturner.koplugin/pageturner_pairing.lua` and `pageturner_pairing_message.lua`. Authentication/check API: `pageturner_http.lua`; existing `main.lua` returns the non-navigation 204 before reader/queue guards.
-- Frontend: `mobile-pwa/pairing.js` validates/consumes URL fragments; `app.js` handles checks, modal and controls; `index.html`/`styles.css` provide the modal/inline status; `service-worker.js` removes old scanner caches. Vendored decoder files are deleted.
-- Automated checks do not validate native-camera readability, phone browser policy, real modal accessibility, installed-PWA handoff, wake behavior, or physical page turns. Device gates remain open.
+- Local regression baseline: **87 passing** (39 Lua plugin/API/pairing, 9 Lua network, 6 Python client, 33 JavaScript endpoint/link/controller/cache/wake tests). Three optional real-LuaSocket tests were skipped because local LuaSocket was unavailable. JS controller tests use DOM/fetch doubles, not a browser/device emulator.
+- Payload/rendering: `pageturner.koplugin/pageturner_pairing.lua` and `pageturner_pairing_message.lua`. Authentication/check API: `pageturner_http.lua`; `main.lua` returns the non-navigation 204 before reader/queue guards.
+- Frontend: `mobile-pwa/pairing.js` validates/consumes URL fragments; `app.js` handles checks, modal and controls; `service-worker.js` caches the shell but never Kindle POSTs.
+- Owner evidence now validates the overall current setup at a report level. Detailed lifecycle, accessibility, wake behavior and reliability gates remain open.
 
 ---
 
