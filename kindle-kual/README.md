@@ -103,6 +103,7 @@ This uses a one-off auth key; it does not put the Tailscale account password on 
 Serve is private to authorized tailnet devices. These scripts do not run `tailscale funnel` or create a public endpoint.
 
 1. Copy the updated `menu.json` and these scripts to matching paths on the Kindle:
+   - `scripts/start-private-tailscale.sh`
    - `scripts/status-private-tailscale.sh`
    - `scripts/configure-private-serve.sh`
    - `scripts/status-private-serve.sh`
@@ -112,5 +113,7 @@ Serve is private to authorized tailnet devices. These scripts do not run `tailsc
 4. First-time HTTPS enablement is interactive in Tailscale 1.102.4: the CLI can print an admin URL and wait. The script displays `HTTPS approval required`, the URL split across Kindle screen lines, and a two-minute counter. Open that URL while signed into Tailscale. Success displays the private endpoint; failure and connection/Serve timeouts are explicit. Detailed timestamped output remains in `logs/serve-configure.log`.
 5. Select **Show private Serve status**. The Kindle immediately shows that it is checking, updates a 15-second wait counter, then shows active/not configured/failed/timeout plus the private HTTPS URL and local proxy target when active. Timestamped output is saved to `logs/serve-status.log`.
 6. Keep Tailscale connected on the iPhone and open the displayed HTTPS URL with `/next` appended. A browser GET has no bearer token, so expected proof of private HTTPS reachability is HTTP 401—not a page turn.
+
+The persistent daemon launch supplies both the explicit `state/tailscaled.state` file and `--statedir=state`. Tailscale requires the latter writable root for managed certificate storage; without it, Serve can appear active while every client handshake fails with `no TailscaleVarRoot`. After updating `start-private-tailscale.sh`, stop the already-running daemon once before configuring Serve again so the new launch argument takes effect. This preserves the registered node state.
 
 **Disable private Serve** removes the node's Serve configuration. It does not stop Tailscale or remove node registration.

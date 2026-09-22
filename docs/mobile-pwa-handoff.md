@@ -3,7 +3,7 @@
 > Updated: 2026-09-22
 > Working branch: `feat/mobile-pwa`
 > Branch base: `main` at `2f3140f` (`changed plugin position in tools and added more network info`)
-> State: Private Tailscale Serve is selected. Current Tailscale 1.102.4 runs on the Paperwhite 3, its userspace daemon passed a bounded test, and the Kindle is registered in the owner's tailnet. The first Serve configuration action failed before its detailed cause was captured; the wrapper now starts/reuses Tailscale before configuring Serve and awaits device retest. No Funnel/public endpoint was enabled.
+> State: Private Tailscale Serve is selected. Current Tailscale 1.102.4 runs on the Paperwhite 3, the Kindle is registered, and Serve now configures as active. The first iPhone TLS attempt reached the Kindle but failed with `no TailscaleVarRoot`: the daemon had an explicit state file whose parent was not auto-detected as writable certificate storage. The start wrapper now also supplies `--statedir=<extension>/state` and awaits device retest. No Funnel/public endpoint was enabled.
 > Canonical plan: [`../roadmap.md`](../roadmap.md), phase 2, **Mobile PWA control and reliability**.
 
 ## Current checkpoint — resume here first
@@ -19,17 +19,17 @@ Target device evidence:
 - A 15-second logged-out daemon test in `--tun=userspace-networking --state=mem:` remained healthy at about 13.6 MiB RSS and six threads; local API worked and cleanup succeeded. This is bounded evidence, not official platform support or a battery/session result.
 - Persistent registration eventually succeeded. The first registration attempt exposed a wrapper bug: old-Kindle process verification misclassified a live daemon and unlinked its socket. Corrected scripts use `/proc/<pid>/exe`; restarting the Kindle safely cleared orphan processes before the successful retry.
 
-Latest result: with the old scripts, **Start private Tailscale succeeded** and the admin console showed the Kindle connected; **Configure private HTTPS Serve then appeared stuck with no screen output**. Source inspection of Tailscale 1.102.4 confirms that first-time HTTPS setup can print an admin approval URL and deliberately block waiting for the tailnet capability. The old script redirected that URL to a log and gave no live screen feedback, so this is the leading explanation, not a proven crash. The owner has now enabled HTTPS in the Tailscale admin console. `configure-private-serve.sh` now starts/reuses Tailscale, shows reconnection progress, bounds reset/status calls to 15 seconds, displays an HTTPS approval URL and 120-second counter if still required, and reports explicit success/failure/timeout on the Kindle. `status-private-serve.sh` similarly shows a 15-second progress counter and final state. The owner intends to copy these revised files; neither revised script has yet been retested on the Kindle.
+Latest result: the revised Serve configurator completed successfully and `tailscale serve status` reported the private HTTPS endpoint proxying to `http://127.0.0.1:8088`. An iPhone request reached the Kindle over the tailnet, proving peer connectivity, but every TLS handshake failed with `no TailscaleVarRoot`. Tailscale 1.102.4 source shows that managed certificates require `LocalBackend.TailscaleVarRoot`; because the wrapper passed only `--state=<extension>/state/tailscaled.state`, and that parent directory is named `state` rather than `tailscale`, Tailscale deliberately did not infer a var root. `start-private-tailscale.sh` now passes `--statedir=<extension>/state` as well, preserving the existing explicit state file while providing certificate storage. This revision has not yet been retested on the Kindle.
 
 Immediate continuation:
 
-1. The old Serve command may still be waiting. Restart the Kindle once to terminate that old foreground KUAL/CLI process safely; persistent registration state survives.
-2. Copy only revised `scripts/configure-private-serve.sh` and `scripts/status-private-serve.sh` to their matching installed paths; do not replace the entire extension or its `state/` directory.
-3. In KUAL run **Configure private HTTPS Serve**. It starts Tailscale itself and shows each wait stage. Running **Start private Tailscale** first remains valid. HTTPS has already been enabled in the admin console, so interactive approval should normally be skipped.
-4. If the Kindle nevertheless displays `HTTPS approval required`, open the shown URL while signed into Tailscale before the two-minute counter expires. The owner has accepted the HTTPS enablement flow, whose required acknowledgement publishes the machine FQDN (`pageturner-kindle.<tailnet>.ts.net`) in public Certificate Transparency logs; endpoint access remains private to the tailnet. Never enable Funnel.
-5. Run **Show private Serve status**. Both configure/status scripts display success and the endpoint on the Kindle using `eips`; logs remain fallback diagnostics.
-6. After Serve succeeds, open KOReader, open a book, start Page Turner on port 8088, keep iPhone Tailscale connected, and navigate directly to `https://<private-ts-host>/next`. Expected unauthenticated GET result is **401** and no page turn. This proves private HTTPS/backend reachability only.
-7. Update the PWA endpoint validator for a trusted HTTPS hostname and port 443 only after that direct control succeeds; current PWA still rejects hostnames and ports below 1024.
+1. Copy only revised `scripts/start-private-tailscale.sh` to its matching installed path; do not replace the extension or its registered `state/` directory.
+2. Use KUAL **Stop private Tailscale** so the next launch receives the new `--statedir` argument. Stopping preserves registration and Serve configuration.
+3. Run **Configure private HTTPS Serve** again. It starts the revised daemon, resets/recreates the Serve mapping, and may obtain/store managed certificate material under the ignored Kindle `state/` directory.
+4. Run **Show private Serve status** and confirm it is active.
+5. Open KOReader, open a book, start Page Turner on port 8088, close dialogs/menus, keep iPhone Tailscale connected, and navigate to `https://<private-ts-host>/next`. Expected unauthenticated GET result is **401** and no page turn.
+6. If TLS still fails, inspect only relevant new `tailscaled.log` lines; do not delete the state directory or enable Funnel.
+7. Update the PWA endpoint validator for a trusted HTTPS hostname and port 443 only after direct HTTPS succeeds; current PWA still rejects hostnames and ports below 1024.
 
 Detailed implementation decisions and history: [`tailscale-private-serve-spec.md`](tailscale-private-serve-spec.md). Operator instructions: [`../kindle-kual/README.md`](../kindle-kual/README.md).
 
@@ -44,7 +44,7 @@ Detailed implementation decisions and history: [`tailscale-private-serve-spec.md
 | Manual Kindle hostname/certificate/DNS | Rejected due changing Wi-Fi IP and setup/renewal complexity. |
 | iOS Shortcut or native iOS app | Rejected as the primary product path; PWA and foreground wake lock remain required. |
 | Tailscale Funnel | Researched and briefly chosen, then superseded. Its only major UX advantage here is no phone VPN; public exposure and hardening are unnecessary because the owner accepts the phone app. Never enabled. |
-| Private Tailscale Serve | Selected. iPhone app connected; Kindle compatibility, daemon, and node registration passed. HTTPS Serve configuration is the current incomplete step. |
+| Private Tailscale Serve | Selected. iPhone app connected; Kindle compatibility, registration, Serve configuration and peer delivery to the TLS listener passed. TLS failed because no certificate storage root was configured; revised daemon launch adds `--statedir` and awaits retest. |
 | Custom secure relay / WebRTC | Documented alternatives, not implemented. Preserve as fallbacks only if private Serve fails for a diagnosed reason. |
 | Voice-command processing | Research completed separately in `pwa-voice-command-research.md`; no microphone/voice implementation. Apple Voice Control is the least-work trial; sherpa-onnx phrase spotting is the preferred free embedded candidate. Voice remains after mobile transport/wake validation. |
 
@@ -61,7 +61,7 @@ KUAL actions and underlying behavior:
 | Check compatibility | Read-only kernel/CPU/memory/storage/TUN/CA inventory; writes `/mnt/us/pageturner-compatibility.txt`. |
 | Test current Tailscale launch | `tailscale version` and `tailscaled --version`; no daemon/login. |
 | Test temporary Tailscale daemon | Starts `tailscaled --tun=userspace-networking --state=mem: --socket=/tmp/pageturner-tailscaled-smoke.sock --port=0`, checks local API/resources, then removes it. |
-| Start private Tailscale | Starts the isolated persistent daemon with `--tun=userspace-networking --state=<extension>/state/tailscaled.state --socket=/tmp/pageturner-tailscaled.sock --port=0`; does not enable SSH/routes/DNS proxying. |
+| Start private Tailscale | Starts the isolated persistent daemon with `--tun=userspace-networking --state=<extension>/state/tailscaled.state --statedir=<extension>/state --socket=/tmp/pageturner-tailscaled.sock --port=0`; the state directory also holds managed TLS certificate material. It does not enable SSH/routes/DNS proxying. |
 | Register Kindle with auth key | Runs `tailscale --socket=<socket> up --auth-key=file:<private/auth.key> --hostname=pageturner-kindle --accept-routes=false --accept-dns=false --ssh=false`; successful one-off key file is deleted. Do not run again after registration unless deliberately reauthenticating. |
 | Show private Tailscale status | Runs `tailscale --socket=<socket> status`, shows KUAL output and writes `logs/status.log`. |
 | Stop private Tailscale | Stops only the PID owned by this extension. Preserves node state and Serve configuration. |
@@ -92,7 +92,7 @@ Removing the node entirely additionally requires deleting/revoking `pageturner-k
 
 Do not interpret the local harness or successful Tailscale registration as evidence that the complete browser architecture works. Continue on `feat/mobile-pwa`, not `main`; do not merge or overwrite the Kindle's registered extension state. The owner has authorized the private Serve experiment and the device/account changes listed above, but not Funnel, unrelated network features, or page turns without coordination.
 
-A minimal framework-free harness exists in `mobile-pwa/`, and GitHub Pages serves it at `https://iamads.github.io/pageturner/`. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on `master`; remove it there before a future legacy build if detachment should persist. Direct phone HTTP reaches the Kindle, but secure-PWA HTTP fetch did not reach the plugin. Private Serve was therefore selected to provide a stable browser-trusted HTTPS endpoint without manual Kindle certificates or public exposure. Serve itself and the combined PWA/wake-lock path remain unproven.
+A minimal framework-free harness exists in `mobile-pwa/`, and GitHub Pages serves it at `https://iamads.github.io/pageturner/`. The older `iamads/iamads.github.io` repository still tracks `CNAME` containing `abhijeet.de` on `master`; remove it there before a future legacy build if detachment should persist. Direct phone HTTP reaches the Kindle, but secure-PWA HTTP fetch did not reach the plugin. Private Serve was therefore selected to provide a stable browser-trusted HTTPS endpoint without manual Kindle certificates or public exposure. Serve configuration and iPhone-to-Kindle tailnet delivery now work, but managed TLS termination and the combined PWA/wake-lock path remain unproven.
 
 ## Confirmed decisions
 
@@ -173,7 +173,8 @@ The broad comparison remains in [`mobile-pwa-hosting-strategies.md`](mobile-pwa-
 - **Selected:** private Tailscale Serve HTTPS. Both devices join the tailnet; the bearer token and scoped CORS remain required application controls.
 - **Superseded:** Funnel. It was never enabled and must remain off.
 - **Validated:** current ARM binaries launch; userspace daemon can run within a bounded test; persistent one-off-key registration succeeds; iPhone Tailscale is connected.
-- **Not yet validated:** Serve configuration, managed certificate issuance, private iPhone HTTPS reachability, proxy request compatibility, PWA hostname/443 support, foreground wake lock with commands, sleep/reconnect behavior, battery impact and long reading sessions.
+- **Validated:** Serve configuration becomes active and iPhone requests reach the Kindle's TLS listener over the tailnet.
+- **Not yet validated:** managed certificate issuance after adding `--statedir`, successful private iPhone HTTPS, proxy request compatibility, PWA hostname/443 support, foreground wake lock with commands, sleep/reconnect behavior, battery impact and long reading sessions.
 - **Implementation constraint:** no TUN exists, so Kindle Tailscale must use `--tun=userspace-networking`. Serve is expected to terminate HTTPS inside `tailscaled` and proxy to loopback, but that path still needs device evidence.
 - **PWA change required after direct Serve proof:** replace IPv4-only/port-1024 validation with a validated private HTTPS hostname/443 model. Do not include tokens in URLs or storage and do not replay uncertain commands.
 - **Plugin behavior to preserve:** authenticated bodyless next/back, exact Pages-origin CORS, strict 4 KiB parsing, foreground-reader guard and no retry. Do not loosen parsing preemptively; observe actual Serve requests first.
@@ -246,4 +247,4 @@ KOReader's bundled LuaSocket on the Kindle is separate from the developer laptop
 - Community precedent: [KOReader Tailscale plugin](https://github.com/victoria-riley-barnett/koreader-tailscale) at inspected commit `5422ff9`, and [Kindle KUAL extension](https://github.com/mitanshu7/tailscale_kual) at `ccd35eb`. Community code and README claims are not target-device evidence.
 - Current Page Turner branch has scoped Pages-origin CORS and no TLS/static hosting/health endpoint.
 
-**Immediate next action after resuming:** Copy the revised auto-starting `configure-private-serve.sh`, run **Configure private HTTPS Serve**, and use its Kindle-screen result. If approval is required, use only the URL in `logs/serve-configure.log`, then retry. Do not enable Funnel. After success, run **Show private Serve status**, return to KOReader, start Page Turner and perform the non-mutating unauthenticated HTTPS reachability check described above before changing the PWA.
+**Immediate next action after resuming:** Copy revised `start-private-tailscale.sh`, stop the existing daemon, then run **Configure private HTTPS Serve** so the daemon starts with `--statedir=<extension>/state`. Do not replace registered state or enable Funnel. After status is active, return to KOReader, start Page Turner and retry the unauthenticated HTTPS reachability check before changing the PWA.

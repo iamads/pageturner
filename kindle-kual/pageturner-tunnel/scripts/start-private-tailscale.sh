@@ -60,6 +60,7 @@ printf '%s\n' 'Starting private Tailscale...'
 SSL_CERT_FILE="$CA_BUNDLE" nohup "$DAEMON" \
     --tun=userspace-networking \
     --state="$STATE" \
+    --statedir="$STATE_DIR" \
     --socket="$SOCKET" \
     --port=0 >"$LOG" 2>&1 &
 pid=$!
