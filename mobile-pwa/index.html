@@ -49,11 +49,22 @@
 
     <section class="card" aria-labelledby="session-title">
       <h2 id="session-title">Foreground session</h2>
+      <p class="hint">While listening and connected, saying “next” or “back” turns the Kindle page. “Sleep” only shows a detection toast. Keep this app visible.</p>
       <div class="session-row">
-        <button id="start-session" class="secondary" type="button">Start wake lock</button>
-        <button id="end-session" class="secondary" type="button" disabled>End session</button>
+        <button id="start-session" class="secondary" type="button">Start listening</button>
+        <button id="end-session" class="secondary" type="button" disabled>Stop listening</button>
       </div>
+      <button id="wake-only" class="secondary" type="button" hidden>Keep screen awake without voice</button>
       <p id="wake-state" class="state" role="status">Wake lock inactive</p>
+      <p id="listening-state" class="state" role="status">Microphone off</p>
+      <div id="voice-test-controls" hidden>
+        <p class="hint">Developer-only simulated detections; these are not speech recognition. Next/back send real page turns when connected.</p>
+        <div class="session-row">
+          <button id="test-next" class="secondary" type="button">Simulate next</button>
+          <button id="test-back" class="secondary" type="button">Simulate back</button>
+          <button id="test-sleep" class="secondary" type="button">Simulate sleep</button>
+        </div>
+      </div>
     </section>
 
     <section class="controls" aria-label="Page controls">
@@ -61,6 +72,7 @@
       <button id="next" class="turn primary" type="button" disabled>Next <span aria-hidden="true">→</span></button>
     </section>
     <p id="command-state" class="command-state" role="status" aria-live="polite">Configure the Kindle before sending a command.</p>
+    <p id="voice-toast" class="voice-toast" role="status" aria-live="polite" hidden></p>
 
     <details class="card diagnostics">
       <summary>Spike diagnostics</summary>
@@ -70,6 +82,7 @@
         <div><dt>Display mode</dt><dd id="diag-display"></dd></div>
         <div><dt>Visibility</dt><dd id="diag-visibility"></dd></div>
         <div><dt>Wake Lock API</dt><dd id="diag-wake-api"></dd></div>
+        <div><dt>Audio processing</dt><dd id="diag-audio">Not listening</dd></div>
         <div><dt>Service worker</dt><dd id="diag-worker"></dd></div>
         <div><dt>Endpoint</dt><dd id="diag-endpoint">Not configured</dd></div>
         <div><dt>Last event</dt><dd id="diag-event">App loaded</dd></div>

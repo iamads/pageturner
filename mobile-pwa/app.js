@@ -1,4 +1,6 @@
 import { parseConnection, consumePairingFragment } from "./pairing.js";
+import { VoiceSession } from "./voice-session.js";
+import { ACTIVE_DETECTOR } from "./detector-config.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -8,9 +10,14 @@ const elements = {
   dialog: $("connection-dialog"), manual: $("manual-connection"),
   cancel: $("cancel-connection"), retry: $("retry-connection"),
   start: $("start-session"), end: $("end-session"), wake: $("wake-state"),
+  wakeOnly: $("wake-only"),
+  listening: $("listening-state"), toast: $("voice-toast"),
+  testControls: $("voice-test-controls"), testNext: $("test-next"),
+  testBack: $("test-back"), testSleep: $("test-sleep"),
   next: $("next"), back: $("back"), command: $("command-state"),
   origin: $("diag-origin"), secure: $("diag-secure"), display: $("diag-display"),
   visibility: $("diag-visibility"), wakeApi: $("diag-wake-api"),
+  audio: $("diag-audio"),
   worker: $("diag-worker"),
   endpoint: $("diag-endpoint"), event: $("diag-event"),
   copy: $("copy-diagnostics"),
@@ -22,6 +29,13 @@ let sessionWanted = false;
 let requestPending = false;
 let connectionVerified = false;
 let connectionCheck = null;
+let voice = null;
+let voiceEpoch = 0;
+let toastTimer = null;
+let lastDetection = {command: null, at: 0};
+const testMode = ["localhost", "127.0.0.1"].includes(location.hostname)
+  && new URLSearchParams(location.search).get("voice-test") === "1";
+elements.testControls.hidden = !testMode;
 
 function displayMode() {
   if (matchMedia("(display-mode: standalone)").matches || navigator.standalone === true) return "standalone";
@@ -34,6 +48,25 @@ function timestamped(message) {
 
 function record(message) {
   elements.event.textContent = timestamped(message);
+}
+
+function toast(message) {
+  clearTimeout(toastTimer);
+  elements.toast.textContent = message;
+  elements.toast.hidden = false;
+  toastTimer = setTimeout(() => { elements.toast.hidden = true; }, 3000);
+}
+
+function detected(command, epoch) {
+  if (epoch !== voiceEpoch || !sessionWanted || document.visibilityState !== "visible"
+    || !["next", "back", "sleep"].includes(command)) return;
+  const now = performance.now();
+  if (lastDetection.command === command && now - lastDetection.at < 800) return;
+  lastDetection = {command, at: now};
+  toast(`Heard ${command}`);
+  // Share the manual sender's verification, in-flight and no-retry guards.
+  // Sleep remains detection-only; blocked turns are dropped, never queued.
+  if (command === "next" || command === "back") void sendCommand(command);
 }
 
 function updateControls() {
@@ -179,11 +212,12 @@ window.addEventListener("hashchange", acceptPairingLink);
 async function acquireWakeLock() {
   if (!("wakeLock" in navigator)) throw new Error("Screen Wake Lock API is unavailable in this context.");
   if (document.visibilityState !== "visible") throw new Error("App must be visible to request a wake lock.");
-  if (wakeSentinel && !wakeSentinel.released) return;
+  if (wakeSentinel && !wakeSentinel.released) return wakeSentinel;
   const sentinel = await navigator.wakeLock.request("screen");
   wakeSentinel = sentinel;
   sentinel.addEventListener("release", () => {
-    if (wakeSentinel === sentinel) wakeSentinel = null;
+    if (wakeSentinel !== sentinel) return;
+    wakeSentinel = null;
     elements.wake.textContent = sessionWanted
       ? "Wake lock released by the browser; will try again when visible"
       : "Wake lock inactive";
@@ -191,30 +225,103 @@ async function acquireWakeLock() {
   });
   elements.wake.textContent = "Wake lock active while this app remains visible";
   record("Wake lock acquired");
+  return sentinel;
+}
+
+async function stopListening() {
+  voiceEpoch++;
+  sessionWanted = false;
+  elements.end.disabled = true;
+  const previous = voice;
+  voice = null;
+  const sentinel = wakeSentinel;
+  wakeSentinel = null;
+  try {
+    await previous?.stop();
+  } finally {
+    if (sentinel && !sentinel.released) await sentinel.release();
+    elements.start.disabled = false;
+    elements.wake.textContent = "Wake lock inactive";
+    elements.listening.textContent = "Microphone off";
+    elements.audio.textContent = "Not listening";
+  }
 }
 
 elements.start.addEventListener("click", async () => {
+  if (sessionWanted) return;
   sessionWanted = true;
+  elements.wakeOnly.hidden = true;
+  lastDetection = {command: null, at: 0};
+  const epoch = ++voiceEpoch;
   elements.start.disabled = true;
   elements.end.disabled = false;
+  elements.listening.textContent = "Starting microphone and detector…";
+  elements.audio.textContent = "Starting…";
+  voice = new VoiceSession({
+    onCommand: (command) => detected(command, epoch),
+    onMetrics: (metrics) => {
+      if (epoch !== voiceEpoch) return;
+      elements.audio.textContent = `${metrics.processed} chunks forwarded, ${metrics.dropped} dropped; `
+        + `max bridge ${Math.round(metrics.maxProcessingMs)} ms, max delivery→ack ${Math.round(metrics.maxQueueMs)} ms`
+        + (ACTIVE_DETECTOR === "vosk" ? " (Vosk's inner decoder is not measured)" : "");
+    },
+    onState: (message) => {
+      if (epoch !== voiceEpoch) return;
+      void stopListening().then(() => { elements.listening.textContent = message; });
+    },
+  });
   try {
-    await acquireWakeLock();
+    const acquired = await acquireWakeLock();
+    if (epoch !== voiceEpoch) {
+      if (wakeSentinel === acquired) wakeSentinel = null;
+      if (acquired && !acquired.released) await acquired.release();
+      if (!wakeSentinel) elements.wake.textContent = "Wake lock inactive";
+      return;
+    }
+    const ready = await voice.start(testMode ? "test" : ACTIVE_DETECTOR);
+    if (epoch !== voiceEpoch || !ready) return;
+    elements.listening.textContent = testMode ? "Test detector listening (simulated commands)"
+      : `Microphone listening (${ACTIVE_DETECTOR})`;
+    toast(testMode ? "Test listening started (simulated)" : "Listening started");
   } catch (error) {
-    elements.wake.textContent = `Wake lock unavailable: ${error.name}: ${error.message}`;
-    record(`Wake lock request failed: ${error.name}: ${error.message}`);
+    if (epoch !== voiceEpoch) return;
+    await stopListening();
+    elements.listening.textContent = `Listening unavailable: ${error.message}`;
+    elements.wakeOnly.hidden = false; // Preserve the previous wake-lock-only capability if the model cannot load.
+    record(`Listening could not start (${error.name || "Error"})`);
   }
 });
 
 elements.end.addEventListener("click", async () => {
-  sessionWanted = false;
-  const sentinel = wakeSentinel;
-  wakeSentinel = null;
-  if (sentinel && !sentinel.released) await sentinel.release();
-  elements.start.disabled = false;
-  elements.end.disabled = true;
-  elements.wake.textContent = "Wake lock inactive";
-  record("Foreground session ended by user");
+  await stopListening();
+  record("Listening stopped by user");
 });
+
+elements.wakeOnly.addEventListener("click", async () => {
+  if (sessionWanted) return;
+  sessionWanted = true;
+  const epoch = ++voiceEpoch;
+  elements.start.disabled = true;
+  elements.end.disabled = false;
+  try {
+    const acquired = await acquireWakeLock();
+    if (epoch !== voiceEpoch) {
+      if (wakeSentinel === acquired) wakeSentinel = null;
+      if (acquired && !acquired.released) await acquired.release();
+      if (!wakeSentinel) elements.wake.textContent = "Wake lock inactive";
+      return;
+    }
+    elements.listening.textContent = "Microphone off; screen wake lock only";
+  } catch {
+    if (epoch !== voiceEpoch) return;
+    await stopListening();
+    elements.listening.textContent = "Wake lock unavailable";
+  }
+});
+
+for (const [element, command] of [[elements.testNext, "next"], [elements.testBack, "back"], [elements.testSleep, "sleep"]]) {
+  element.addEventListener("click", () => { if (testMode && sessionWanted) voice?.simulate(command); });
+}
 
 document.addEventListener("visibilitychange", async () => {
   updateDiagnostics();
@@ -287,6 +394,7 @@ elements.copy.addEventListener("click", async () => {
     `Service worker: ${"serviceWorker" in navigator}`,
     `Endpoint: ${connection ? connection.baseUrl : "not configured"}`,
     `Wake state: ${elements.wake.textContent}`,
+    `Audio processing: ${elements.audio.textContent}`,
     `Last event: ${elements.event.textContent}`,
   ];
   try {

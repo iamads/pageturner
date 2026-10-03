@@ -8,7 +8,7 @@ import { parseConnection, consumePairingFragment } from "../mobile-pwa/pairing.j
 // dialog focus trapping, camera recognition and browser policy need device tests.
 const html = readFileSync(new URL("../mobile-pwa/index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../mobile-pwa/app.js", import.meta.url), "utf8")
-  .replace(/^import .*;\n/, "");
+  .replace(/^import .*;\n/gm, "");
 const token = "a".repeat(64);
 const endpoint = "https://kindle.example.ts.net";
 const fragment = (auth = token) => `#version=1&endpoint=${encodeURIComponent(endpoint)}&token=${auth}`;
@@ -27,7 +27,7 @@ function events(target = {}) {
   return target;
 }
 
-function app(hash = "", {ignoreAbort = false} = {}) {
+function app(hash = "", {ignoreAbort = false, voiceFail = false, detector = "sherpa"} = {}) {
   const elements = new Map();
   let focused;
   for (const [tag, id] of html.matchAll(/<[^>]*?\bid="([^"]+)"[^>]*>/g)) {
@@ -44,7 +44,23 @@ function app(hash = "", {ignoreAbort = false} = {}) {
   const timers = new Map();
   const historyCalls = [];
   let clock = 0;
+  let now = 0;
+  const sessions = [];
+  class FakeVoiceSession {
+    constructor({onCommand, onState}) {
+      this.onCommand = onCommand;
+      this.onState = onState;
+      this.stopped = false;
+      sessions.push(this);
+    }
+    async start(mode) { this.mode = mode; if (voiceFail) throw new Error("Model unavailable"); return true; }
+    async stop() { this.stopped = true; }
+    simulate(command) { this.onCommand(command); }
+  }
   const context = events({
+    VoiceSession: FakeVoiceSession,
+    ACTIVE_DETECTOR: detector,
+    URLSearchParams,
     document: events({
       getElementById: (id) => { assert(elements.has(id), `missing element ${id}`); return elements.get(id); },
       visibilityState: "visible",
@@ -56,7 +72,7 @@ function app(hash = "", {ignoreAbort = false} = {}) {
       location.href = new URL(url, location).href;
     }},
     parseConnection, consumePairingFragment, AbortController,
-    Date, performance, isSecureContext: true,
+    Date, performance: {now: () => now}, isSecureContext: true,
     matchMedia: () => ({matches: false}),
     setTimeout(fn, delay) { const id = ++clock; timers.set(id, {fn, delay}); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -71,9 +87,10 @@ function app(hash = "", {ignoreAbort = false} = {}) {
   context.window = context;
   vm.runInNewContext(source, context, {filename: "app.js"});
   return {
-    context, location, requests, timers, historyCalls,
+    context, location, requests, timers, historyCalls, sessions,
     el: (id) => elements.get(id),
     focus: () => focused,
+    advanceTime(ms) { now += ms; },
     async manual(endpointValue = endpoint, auth = token) {
       await elements.get("manual-connection").emit("click");
       elements.get("endpoint-input").value = endpointValue;
@@ -239,7 +256,7 @@ test("UI and cache no longer contain camera or decoder integration", () => {
   assert.match(html, /<dialog[^>]+aria-labelledby="dialog-title"/);
   assert.match(html, /id="token"[^>]+type="password"/);
   assert.match(html, /id="connection-form"[^>]+method="dialog"/); // never default GET credentials to Pages
-  assert.match(worker, /pageturner-spike-v4/);
+  assert.match(worker, /pageturner-spike-v9/);
 });
 
 test("worker removes old scanner caches and never handles authenticated POSTs", async () => {
@@ -257,7 +274,7 @@ test("worker removes old scanner caches and never handles authenticated POSTs", 
     },
     caches: {
       open: async () => ({addAll: async (files) => { shell = [...files]; }}),
-      keys: async () => ["pageturner-spike-v3", "pageturner-spike-v4", "unrelated"],
+      keys: async () => ["pageturner-spike-v8", "pageturner-spike-v9", "unrelated"],
       delete: async (name) => { deleted.push(name); },
     },
   });
@@ -265,10 +282,20 @@ test("worker removes old scanner caches and never handles authenticated POSTs", 
   handlers.get("install")({waitUntil: (promise) => { pending = promise; }});
   await pending;
   assert(shell.includes("pairing.js"));
-  assert(!shell.some((file) => /vendor|jsQR|#|token/.test(file)));
+  assert(shell.includes("voice-detector-worker.js"));
+  assert(shell.includes("voice-capture-worklet.js"));
+  assert(shell.includes("vendor/sherpa-onnx/sherpa-onnx-kws.js"));
+  assert(shell.includes("vendor/sherpa-onnx/sherpa-onnx-wasm-kws-main.data"));
+  assert(shell.includes("vendor/sherpa-onnx/sherpa-onnx-wasm-kws-main.wasm"));
+  assert(shell.includes("vendor/sherpa-onnx/keywords.txt"));
+  assert(shell.includes("detector-config.js"));
+  assert(shell.includes("vosk-detector.js"));
+  assert(shell.includes("vendor/vosk/vosk.js"));
+  assert(!shell.includes("vendor/vosk/model.tar.gz")); // avoid 40 MB on sherpa startup
+  assert(!shell.some((file) => /jsQR|#|token/.test(file)));
   handlers.get("activate")({waitUntil: (promise) => { pending = promise; }});
   await pending;
-  assert.deepEqual(deleted, ["pageturner-spike-v3"]);
+  assert.deepEqual(deleted, ["pageturner-spike-v8"]);
   for (const request of [
     {method: "POST", url: endpoint + "/connect"},
     {method: "POST", url: endpoint + "/next"},
@@ -276,6 +303,208 @@ test("worker removes old scanner caches and never handles authenticated POSTs", 
   ]) {
     handlers.get("fetch")({request, respondWith() { assert.fail("must not intercept Kindle traffic"); }});
   }
+});
+
+test("detector choice refreshes online and retains an offline config fallback", async () => {
+  const source = readFileSync(new URL("../mobile-pwa/service-worker.js", import.meta.url), "utf8");
+  const handlers = new Map();
+  let online = true;
+  let cached = {id: "old"};
+  let network = 0;
+  vm.runInNewContext(source, {
+    URL,
+    self: {location: {origin: "https://iamads.github.io"}, addEventListener: (name, fn) => handlers.set(name, fn)},
+    fetch: async () => {
+      network++;
+      if (!online) throw new Error("offline");
+      return {ok: true, id: "new", clone() { return {id: "new"}; }};
+    },
+    caches: {open: async () => ({put: async (_request, response) => { cached = response; }}),
+      match: async () => cached},
+  });
+  const request = {method: "GET", url: "https://iamads.github.io/pageturner/detector-config.js"};
+  let response, background;
+  const event = {request, respondWith(promise) { response = promise; }, waitUntil(promise) { background = promise; }};
+  handlers.get("fetch")(event);
+  assert.equal((await response).id, "new");
+  await background;
+  assert.equal(cached.id, "new");
+  online = false;
+  handlers.get("fetch")(event);
+  assert.equal((await response).id, "new");
+  assert.equal(network, 2);
+});
+
+test("code-selected Vosk mode reuses the same audio/session UI without dispatching when unpaired", async () => {
+  const a = app("", {detector: "vosk"});
+  a.context.navigator.wakeLock = {request: async () => {
+    const lock = events({released: false});
+    lock.release = async () => { lock.released = true; await lock.emit("release"); };
+    return lock;
+  }};
+  await a.el("start-session").emit("click");
+  assert.equal(a.sessions[0].mode, "vosk");
+  assert.match(a.el("listening-state").textContent, /vosk/);
+  a.sessions[0].onCommand("back");
+  assert.equal(a.el("voice-toast").textContent, "Heard back");
+  assert.equal(a.requests.length, 0);
+  await a.el("end-session").emit("click");
+});
+
+async function startVoice(a) {
+  a.context.navigator.wakeLock = {request: async () => {
+    const lock = events({released: false});
+    lock.release = async () => { lock.released = true; await lock.emit("release"); };
+    return lock;
+  }};
+  await a.el("start-session").emit("click");
+  return a.sessions.at(-1);
+}
+
+test("both detectors send authenticated next/back once and retain detection toasts", async () => {
+  for (const detector of ["sherpa", "vosk"]) {
+    const a = app(fragment(), {detector});
+    a.requests[0].resolve(response(204)); await flush();
+    const voice = await startVoice(a);
+    for (const [index, command] of ["next", "back"].entries()) {
+      voice.onCommand(command);
+      assert.equal(a.el("voice-toast").textContent, `Heard ${command}`);
+      assert.equal(a.el("voice-toast").hidden, false);
+      assert.equal(a.requests.length, index + 2);
+      const request = a.requests.at(-1);
+      assert.equal(request.url, `${endpoint}/${command}`);
+      assert.equal(request.options.method, "POST");
+      assert.equal(request.options.headers.Authorization, `Bearer ${token}`);
+      assert.equal(request.options.body, null);
+      assert.equal(request.options.credentials, "omit");
+      assert.equal(request.options.redirect, "error");
+      assert.equal(request.options.referrerPolicy, "no-referrer");
+      assert.equal(request.options.cache, "no-store");
+      assert.equal(a.el("next").disabled, true);
+      request.resolve(response(202)); await flush();
+      assert.match(a.el("command-state").textContent, new RegExp(`${command} accepted`));
+      assert.equal(a.el("next").disabled, false);
+    }
+    voice.onCommand("sleep");
+    assert.equal(a.el("voice-toast").textContent, "Heard sleep");
+    assert.equal(a.requests.length, 3);
+    assert.equal(voice.stopped, false);
+  }
+});
+
+test("unverified detections show toasts but are never queued for connection success", async () => {
+  const a = app(fragment());
+  const voice = await startVoice(a);
+  voice.onCommand("next");
+  assert.equal(a.el("voice-toast").textContent, "Heard next");
+  assert.equal(a.requests.length, 1);
+  a.requests[0].resolve(response(401)); await flush();
+  voice.onCommand("back");
+  assert.equal(a.el("voice-toast").textContent, "Heard back");
+  assert.equal(a.requests.length, 1);
+  const retry = a.el("retry-connection").emit("click");
+  a.requests[1].resolve(response(204)); await retry;
+  assert.equal(a.requests.length, 2);
+  voice.onCommand("next");
+  assert.equal(a.requests.length, 3);
+  a.requests[2].resolve(response(202)); await flush();
+});
+
+test("voice and manual turns share the in-flight guard and duplicate cooldown", async () => {
+  const a = app(fragment());
+  a.requests[0].resolve(response(204)); await flush();
+  const voice = await startVoice(a);
+  voice.onCommand("next");
+  voice.onCommand("next"); // same detection is suppressed
+  await a.el("back").emit("click"); // manual turn blocked by voice turn
+  assert.equal(a.requests.length, 2);
+  a.requests[1].resolve(response(202)); await flush();
+  a.advanceTime(799);
+  voice.onCommand("next");
+  assert.equal(a.requests.length, 2);
+  a.advanceTime(1);
+  voice.onCommand("next");
+  assert.equal(a.requests.length, 3);
+  a.requests[2].resolve(response(202)); await flush();
+  const manual = a.el("back").emit("click");
+  voice.onCommand("back"); // voice turn blocked by manual turn, toast retained
+  assert.equal(a.el("voice-toast").textContent, "Heard back");
+  assert.equal(a.requests.length, 4);
+  a.requests[3].resolve(response(202)); await manual;
+  assert.equal(a.requests.length, 4); // no queued voice turn after completion
+});
+
+test("hidden, stopped, stale and invalid detections cannot send Kindle requests", async () => {
+  const a = app(fragment());
+  a.requests[0].resolve(response(204)); await flush();
+  const oldVoice = await startVoice(a);
+  a.context.document.visibilityState = "hidden";
+  oldVoice.onCommand("next");
+  assert.equal(a.requests.length, 1);
+  assert.equal(a.el("voice-toast").textContent, "Listening started");
+  a.context.document.visibilityState = "visible";
+  await a.el("end-session").emit("click");
+  oldVoice.onCommand("back");
+  const currentVoice = await startVoice(a);
+  oldVoice.onCommand("next");
+  currentVoice.onCommand("connect");
+  assert.equal(a.requests.length, 1);
+  currentVoice.onCommand("back");
+  assert.equal(a.requests.length, 2);
+  assert.equal(a.el("voice-toast").textContent, "Heard back");
+  a.requests[1].resolve(response(202)); await flush();
+});
+
+test("voice turn timeout is uncertain and never automatically retried", async () => {
+  const a = app(fragment());
+  a.requests[0].resolve(response(204)); await flush();
+  const voice = await startVoice(a);
+  voice.onCommand("next");
+  const timeout = [...a.timers.values()].at(-1); // sender timeout follows toast timer
+  assert.equal(timeout.delay, 3000);
+  timeout.fn(); await flush();
+  assert.match(a.el("command-state").textContent, /Uncertain result/);
+  assert.equal(a.el("voice-toast").textContent, "Heard next");
+  assert.equal(a.requests.length, 2);
+  assert.equal(a.el("next").disabled, false);
+});
+
+test("voice startup failure releases the wake lock and leaves manual controls untouched", async () => {
+  const a = app("", {voiceFail: true});
+  let released = 0;
+  a.context.navigator.wakeLock = {request: async () => {
+    const lock = events({released: false});
+    lock.release = async () => { lock.released = true; released++; await lock.emit("release"); };
+    return lock;
+  }};
+  await a.el("start-session").emit("click");
+  assert.equal(released, 1);
+  assert.equal(a.sessions[0].stopped, true);
+  assert.equal(a.el("start-session").disabled, false);
+  assert.match(a.el("listening-state").textContent, /Model unavailable/);
+  assert.equal(a.el("wake-only").hidden, false);
+  await a.el("wake-only").emit("click");
+  assert.match(a.el("listening-state").textContent, /Microphone off; screen wake lock only/);
+  assert.equal(a.sessions.length, 1); // fallback does not start another microphone
+  await a.el("end-session").emit("click");
+  assert.equal(released, 2);
+  assert.equal(a.requests.length, 0);
+});
+
+test("stop during pending wake-lock request releases the late lock without opening a microphone", async () => {
+  const a = app();
+  let grant;
+  a.context.navigator.wakeLock = {request: () => new Promise((resolve) => { grant = resolve; })};
+  const starting = a.el("start-session").emit("click");
+  await a.el("end-session").emit("click");
+  const lock = events({released: false});
+  lock.release = async () => { lock.released = true; await lock.emit("release"); };
+  grant(lock);
+  await starting;
+  assert.equal(lock.released, true);
+  assert.equal(a.sessions[0].stopped, true);
+  assert.equal(a.el("start-session").disabled, false);
+  assert.equal(a.el("wake-state").textContent, "Wake lock inactive");
 });
 
 test("wake lock release, foreground reacquisition and explicit end remain independent of pairing", async () => {
@@ -290,6 +519,16 @@ test("wake lock release, foreground reacquisition and explicit end remain indepe
   }};
   await a.el("start-session").emit("click");
   assert.match(a.el("wake-state").textContent, /Wake lock active/);
+  assert.match(a.el("listening-state").textContent, /Microphone listening/);
+  assert.equal(a.sessions[0].mode, "sherpa");
+  assert.equal(a.el("voice-toast").textContent, "Listening started");
+  const previousEvent = a.el("diag-event").textContent;
+  a.sessions[0].onCommand("next");
+  assert.equal(a.el("voice-toast").textContent, "Heard next");
+  a.sessions[0].onCommand("sleep");
+  assert.equal(a.el("voice-toast").textContent, "Heard sleep");
+  assert.equal(a.el("diag-event").textContent, previousEvent); // no detection history
+  assert.equal(a.requests.length, 0);
   a.context.document.visibilityState = "hidden";
   await locks[0].release();
   await a.context.document.emit("visibilitychange");
@@ -300,5 +539,9 @@ test("wake lock release, foreground reacquisition and explicit end remain indepe
   await a.el("end-session").emit("click");
   assert.equal(locks[1].released, true);
   assert.equal(a.el("wake-state").textContent, "Wake lock inactive");
+  assert.equal(a.el("listening-state").textContent, "Microphone off");
+  assert.equal(a.sessions[0].stopped, true);
+  a.sessions[0].onCommand("back"); // late event from a stopped session
+  assert.equal(a.el("voice-toast").textContent, "Heard sleep");
   assert.equal(a.requests.length, 0);
 });

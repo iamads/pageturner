@@ -1,6 +1,40 @@
 # Mobile PWA control — handoff
 
-## Current checkpoint — camera-link pairing works (2026-09-22)
+## Current checkpoint — voice-to-Kindle wiring, local only
+
+The user authorized connecting spoken `next` and `back` to Kindle API calls and explicitly retaining the toasts. `mobile-pwa/app.js` now shows `Heard …` and uses the same authenticated sender as the manual buttons. `sleep` remains toast-only. Current-session/visible-page checks, verified-connection and in-flight guards, 800 ms same-word deduplication and no automatic retry/queue apply. The UI explains that spoken commands (including localhost simulations when connected) can turn real pages. Service-worker cache is **v9**.
+
+Validation: **50 passing** via `node --test tests/test_pwa_*.mjs`, plus `git diff --check`. New controller tests cover both detectors, authenticated calls, preserved toasts, unverified connections, duplicate/busy drops, hidden/stale events and uncertain timeout without retry. No deployment or real Kindle/iPhone verification was performed. Recognition reliability remains unvalidated; this wiring is not evidence of accuracy.
+
+The prior local checkpoint below is historical: its detector-only/no-authorization statements and v8 cache no longer describe current local code. Preserve existing uncommitted work and secrets; do not treat local changes as deployed.
+
+## Prior checkpoint — voice detector comparison, local only (2026-10-03)
+
+**Deployment boundary:** The prior live GitHub Pages pairing checkpoint below remains the last verified deployment. Voice work is on local `main` at `474a51d` with uncommitted changes and new files; it has **not been pushed, deployed to Pages, or validated on the iPhone**. Do not confuse the local dev server with the HTTPS installed PWA. Preserve the untracked `docs/on-device-keyword-spotting-research.md` and the ignored pairing/Tailscale secrets/state; do not commit them indiscriminately.
+
+### Implemented locally
+
+- `mobile-pwa/` now has **Start listening** / **Stop listening** controlling the microphone and foreground wake lock together. AudioWorklet frames bounded mono PCM to `voice-detector-worker.js`; the Worker returns only `next`, `back`, or `sleep` events. A toast shows detections; **none of the words invokes the Kindle API**. `sleep` has no other action. Manual Next/Back and existing connection, token, CORS, uncertainty/no-retry guards remain separate. No microphone recordings, cloud audio, or detection-history log are stored. A wake-lock-only fallback appears after a failed voice start.
+- **Code-only detector switch:** set `ACTIVE_DETECTOR` in `mobile-pwa/detector-config.js` to `"sherpa"` or `"vosk"`. The owner has changed the **local setting to `"vosk"`**; it is served by the running dev server. Reload the browser (close/reopen an installed PWA if it shows cached code). There is no UI picker. `mobile-pwa/service-worker.js` uses cache **v8** and refreshes the tiny config network-first, with an offline fallback. Do not assume v8 is live on Pages.
+- Sherpa: pinned self-hosted v1.13.8 English INT8 keyword spotter in WASM; bundled assets ~18 MB. Vosk: separate local ASR baseline (`vosk-browser` 0.0.8 and small US-English model), ~5.8 MB runtime + ~39 MB compressed model fetched only when selected. Its exact-word grammar includes `[unk]` rejection; only completed results trigger toasts, so it can respond later than sherpa. Vosk may cache the **model** in browser IDBFS; it does not save microphone recordings. Both are experimental, not accuracy guarantees. License, provenance and digests are in `mobile-pwa/vendor/{sherpa-onnx,vosk}/PROVENANCE.md`; the sherpa rebuild helper is `tools/build-sherpa-kws.sh`.
+- `mobile-pwa/README.md` documents switching, limitations, and a manual iPhone check. `docs/bare-word-voice-control-spec.md` records decisions and deferred interruption behavior. Visible Audio processing diagnostics show forwarded/dropped chunks and timings; Vosk uses an inner Worker, so the reported bridge timing does **not** measure its ASR decoder.
+
+### Evidence and caveats
+
+- Owner's **Mac sherpa** test: ordinary `next` detected about 1/5 times, `back` not at all, `sleep` more often; deliberately lengthening next/back improved detections but did not make them reliable. A sampled session showed **288 chunks, zero dropped**, max outer Worker/delivery-to-ack ~36 ms. This is qualitative evidence of short-word sensitivity, not a measured iPhone recall or a precision pass. No voice-to-Kindle action is approved.
+- Locally built sherpa model/WASM loaded and decoded synthetic PCM in headless Chrome, including a known-phrase smoke test; synthetic isolated next/back missed, sleep triggered. Locally packaged Vosk initialized and emitted all three command labels from **synthetic** isolated utterances in headless Chrome. These checks establish wiring only, not owner-voice performance, false activations, latency, iPhone support, or battery suitability. The Vosk model's size/startup and nested Worker must be checked on the target iPhone.
+- Current JS-only regression: **45 passing** via `node --test tests/test_pwa_*.mjs`, plus `git diff --check`; no new Lua/Python or real-device suite was run during this voice work. The older 87-test baseline below predates voice changes and should not be reported as newly rerun.
+- The local dev server is running on **http://localhost:4173/**, serving the selected `"vosk"` config. It is suitable for a Mac test (localhost secure-context exception), **not** an iPhone microphone test over an ordinary LAN HTTP URL. Installed iPhone testing requires an HTTPS deployment and explicit permission; no deployment was made here.
+
+### Next steps
+
+1. On the Mac, reload the dev-server tab, verify **Microphone listening (vosk)**, say bare `next/back/sleep` normally with pauses, and compare to the earlier sherpa experience. Check unwanted toasts, first-load time, and diagnostics. Do not infer that zero outer-Worker drops means Vosk's inner decoder kept up.
+2. If Vosk is materially better in the owner's voice, run a bounded iPhone HTTPS PWA trial after a deliberate deployment. If it fails to load or accuracy is poor, leave voice detector-only and compare other models; do not enable API calls by lowering thresholds blindly.
+3. Keep prior pairing/transport and wake-lock phase gates below open until their own device evidence is recorded. Do not change Kindle plugin, enable Funnel, or treat a voice toast as a page turn.
+
+---
+
+## Prior deployment checkpoint — camera-link pairing works (2026-09-22)
 
 Commit `68e028e` (`changed strategy`) is on `main`, and the cache-v4 frontend is live at **https://iamads.github.io/pageturner/**. Live checks returned HTTP 200 for the app and confirmed the deployed controller uses `consumePairingFragment` and authenticated `/connect`; the deployed HTML contains the manual modal and no old scanner.
 

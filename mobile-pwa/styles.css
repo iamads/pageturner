@@ -34,6 +34,8 @@ dialog::backdrop { background: rgb(0 0 0 / .7); }
 .turn { min-height: 8.5rem; background: #e2e8f0; color: #0f172a; font-size: 1.35rem; }
 .turn.primary { background: #60a5fa; color: #07111f; }
 .command-state { min-height: 3.2rem; padding: .25rem; color: #dbeafe; line-height: 1.45; }
+.voice-toast { position: fixed; z-index: 10; bottom: max(1rem, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 2rem), 30rem); padding: 1rem; border-radius: .75rem; background: #1d4ed8; color: white; text-align: center; box-shadow: 0 0.5rem 1.5rem #0009; }
+#voice-test-controls { margin-top: 1rem; }
 summary { cursor: pointer; font-weight: 750; }
 dl { margin: 1rem 0; }
 dl div { display: grid; grid-template-columns: 8rem 1fr; gap: .5rem; padding: .45rem 0; border-bottom: 1px solid #1e293b; }
